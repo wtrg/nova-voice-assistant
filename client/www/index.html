@@ -339,8 +339,37 @@
       window.diagnosticsPanel = diagnosticsPanel;
     }
 
-    // Audio Event Dispatcher: quản lý tts_request_id và turn_id correlation (Phase 5)
+    // Audio Event Dispatcher: quản lý tts_request_id và turn_id correlation (Phase 5 & V3 Reliability)
     const activeAudioRequests = new Map();
+
+    function cancelAudioRequest(requestId) {
+      if (!requestId) return;
+      const req = activeAudioRequests.get(requestId);
+      if (req) {
+        req.cancelled = true;
+        if (req.connectTimeout) {
+          clearTimeout(req.connectTimeout);
+          req.connectTimeout = null;
+        }
+        activeAudioRequests.delete(requestId);
+      }
+    }
+
+    function cancelAllAudioRequests() {
+      for (const [reqId, req] of activeAudioRequests.entries()) {
+        req.cancelled = true;
+        if (req.connectTimeout) {
+          clearTimeout(req.connectTimeout);
+          req.connectTimeout = null;
+        }
+      }
+      activeAudioRequests.clear();
+      window._nativeTTSFinishedCallback = null;
+      window.onNovaSpeechStarted = null;
+      window.onNativeAudioFailed = null;
+    }
+    window.cancelAudioRequest = cancelAudioRequest;
+    window.cancelAllAudioRequests = cancelAllAudioRequests;
 
     window.onNovaAudioEvent = function(requestId, event) {
       console.log(`[AudioEvent] req=${requestId}, event=${event}`);
@@ -365,8 +394,18 @@
         return;
       }
 
+      if (handler.cancelled) {
+        console.log(`[AudioEvent] Ignored event=${event} for cancelled requestId=${requestId}`);
+        activeAudioRequests.delete(requestId);
+        return;
+      }
+
       if (handler.turnId && turnController && !turnController.isCurrentTurn(handler.turnId)) {
         console.warn(`[AudioEvent] Rejected event for stale turn: ${handler.turnId}`);
+        if (handler.connectTimeout) {
+          clearTimeout(handler.connectTimeout);
+          handler.connectTimeout = null;
+        }
         activeAudioRequests.delete(requestId);
         return;
       }
@@ -1103,30 +1142,60 @@
       // CƠ CHẾ 1: NẾU TRÊN THIẾT BỊ ANDROID (Sử dụng Hardware MediaPlayer phát luồng âm thanh giọng Cuppy gốc)
       if (window.AndroidNova && typeof window.AndroidNova.playAudioUrl === 'function') {
         let isDone = false;
-        let connectTimeout = null;
 
         const currentTurnId = (turnController && turnController.activeTurnId) ? turnController.activeTurnId : null;
         const requestId = (turnController && currentTurnId) ? turnController.createTtsRequest(currentTurnId) : ('tts_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
 
+        const reqEntry = {
+          turnId: currentTurnId,
+          connectTimeout: null,
+          cancelled: false,
+          onStart: null,
+          onDone: null,
+          onFail: null
+        };
+
         const onDoneCallback = () => {
           if (isDone) return;
           isDone = true;
-          if (connectTimeout) clearTimeout(connectTimeout);
+          if (reqEntry.connectTimeout) {
+            clearTimeout(reqEntry.connectTimeout);
+            reqEntry.connectTimeout = null;
+          }
           activeAudioRequests.delete(requestId);
           window._nativeTTSFinishedCallback = null;
           window.onNativeAudioFailed = null;
           window.onNovaSpeechStarted = null;
+          if (reqEntry.cancelled) {
+            console.log(`[Audio] Ignored onDone for cancelled request: ${requestId}`);
+            return;
+          }
+          if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) {
+            console.warn(`[Audio] Ignored onDone for stale turn: ${currentTurnId}`);
+            return;
+          }
           finishChunk();
         };
 
         const onAudioFailed = () => {
           if (isDone) return;
           isDone = true;
-          if (connectTimeout) clearTimeout(connectTimeout);
+          if (reqEntry.connectTimeout) {
+            clearTimeout(reqEntry.connectTimeout);
+            reqEntry.connectTimeout = null;
+          }
           activeAudioRequests.delete(requestId);
           window._nativeTTSFinishedCallback = null;
           window.onNativeAudioFailed = null;
           window.onNovaSpeechStarted = null;
+          if (reqEntry.cancelled) {
+            console.log(`[Audio] Ignored onAudioFailed for cancelled request: ${requestId}`);
+            return;
+          }
+          if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) {
+            console.warn(`[Audio] Ignored onAudioFailed for stale turn: ${currentTurnId}`);
+            return;
+          }
           console.warn("Cuppy audio failed, playing Cuppy network notice instead of male voice");
           // TUYỆT ĐỐI KHÔNG chuyển sang giọng nam/chị Google, nếu lỗi mạng thì phát câu thông báo lỗi giọng Cuppy gốc
           try {
@@ -1136,29 +1205,32 @@
         };
 
         const onStartedCallback = () => {
-          if (connectTimeout) {
-            clearTimeout(connectTimeout);
-            connectTimeout = null;
+          if (reqEntry.connectTimeout) {
+            clearTimeout(reqEntry.connectTimeout);
+            reqEntry.connectTimeout = null;
           }
+          if (reqEntry.cancelled) return;
+          if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
           if (turnController && currentTurnId) {
             turnController.markSpeaking(currentTurnId);
           }
           triggerStartChunk();
         };
 
-        activeAudioRequests.set(requestId, {
-          turnId: currentTurnId,
-          onStart: onStartedCallback,
-          onDone: onDoneCallback,
-          onFail: onAudioFailed
-        });
+        reqEntry.onStart = onStartedCallback;
+        reqEntry.onDone = onDoneCallback;
+        reqEntry.onFail = onAudioFailed;
+
+        activeAudioRequests.set(requestId, reqEntry);
 
         window._nativeTTSFinishedCallback = onDoneCallback;
         window.onNovaSpeechStarted = onStartedCallback;
         window.onNativeAudioFailed = onAudioFailed;
 
         // Bao gồm cả thời gian server sinh clip Cuppy lần đầu; hủy khi MediaPlayer phát.
-        connectTimeout = setTimeout(() => {
+        reqEntry.connectTimeout = setTimeout(() => {
+          if (reqEntry.cancelled) return;
+          if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
           console.warn("Cuppy audio connect timeout (35s)");
           onAudioFailed();
         }, 35000);
@@ -1193,8 +1265,11 @@
       let hasStarted = false;
 
       // HÀM PRE-FETCH: Kỹ thuật Pipelining chuẩn của các hãng trợ lý hàng đầu (OpenAI / Google)
-      // Trong khi câu N đang phát ra loa, âm thầm kích hoạt server sinh sẵn câu N+1 vào cache
+      // Invariant Stage 10: Chỉ prefetch N+1 SAU KHI chunk N đã bắt đầu phát thực sự.
+      // Tuyệt đối không prefetch nếu lượt đã kết thúc hoặc người dùng ngắt lời!
       function prefetchChunk(idx) {
+        if (!isSpeakingNow) return;
+        if (turnController && !turnController.activeTurnId) return;
         if (idx < chunks.length) {
           const nextText = chunks[idx];
           if (nextText && nextText.trim()) {
@@ -1210,6 +1285,7 @@
 
       function playNext() {
         if (!isSpeakingNow) return; // Người dùng chạm ngắt lời
+        if (turnController && !turnController.activeTurnId) return; // Lượt đã bị hủy
         if (index >= chunks.length) {
           onFinished();
           return;
@@ -1219,9 +1295,7 @@
         const currentIndex = index;
         index++;
 
-        // Kích hoạt sinh trước câu tiếp theo ngay khi câu hiện tại chuẩn bị phát!
-        prefetchChunk(currentIndex + 1);
-
+        // Live chunk N được phát trước
         playSingleVoiceChunk(chunk, () => {
           playNext();
         }, () => {
@@ -1229,10 +1303,14 @@
             hasStarted = true;
             if (onStart) onStart();
           }
+          // Sau khi chunk N đã được bắt đầu phát thực sự -> kích hoạt prefetch chunk N+1
+          if (isSpeakingNow && (!turnController || turnController.activeTurnId)) {
+            prefetchChunk(currentIndex + 1);
+          }
         });
       }
 
-      // Kích hoạt phát câu đầu tiên và prefetch câu thứ 2
+      // Bắt đầu phát chunk đầu tiên
       playNext();
     }
 
@@ -1452,6 +1530,7 @@
           const controller = new AbortController();
           // Backend có thể chờ Gemini đến 12 giây; client cần thêm thời gian cho tunnel và JSON.
           timeoutId = setTimeout(() => controller.abort(), 18000);
+          const currentTurnId = (turnController && turnController.activeTurnId) ? turnController.activeTurnId : null;
           const res = await fetch(`${baseUrl}/api/dialogue`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1459,7 +1538,8 @@
               user_text: userText,
               in_conversation: inConversationMode,
               session_id: getDeviceSessionId(),
-              generate_audio: false
+              generate_audio: false,
+              turn_id: currentTurnId
             }),
             signal: controller.signal
           });
@@ -1479,7 +1559,7 @@
           }
           let replyText = (data.reply || "").replace(/[*#]/g, "").trim();
           let actionResult = typeof data.action === 'object' ? data.action : { action: data.action || "chat" };
-          return { reply: replyText, action: actionResult, audio_url: data.audio_url };
+          return { reply: replyText, action: actionResult, audio_url: data.audio_url, turn_id: data.turn_id || currentTurnId };
         } catch (err) {
           console.warn(`[Backend] Thử kết nối ${baseUrl} thất bại:`, err.message || err);
           lastError = err;
@@ -1841,13 +1921,35 @@ QUY TẮC PHẢN HỒI:
     }
 
     // Nhận kích hoạt từ thông báo Android khi mở app từ chuông báo thức (Safe Native -> WebView handoff)
-    window.handleNativeAlarmTrigger = function(title, sessionId) {
-      console.log("Triggered from Native Alarm Notification:", title, "SessionId:", sessionId);
+    window.handleNativeAlarmTrigger = function(title, sessionId, reminderId) {
+      console.log("Triggered from Native Alarm Notification:", title, "SessionId:", sessionId, "ReminderId:", reminderId);
       if (sessionId && window.AndroidNova && typeof window.AndroidNova.claimAlarmSession === 'function') {
         const claimResult = window.AndroidNova.claimAlarmSession(sessionId);
         console.log("Claimed native alarm session:", sessionId, "Result:", claimResult);
+        if (!claimResult) {
+          console.warn("[Alarm] Bỏ qua kích hoạt chuông do phiên báo thức đã hết hạn hoặc không hợp lệ:", sessionId);
+          return;
+        }
       }
-      triggerProactiveAlarm({ title: title, scheduled_time: formatDateTime(new Date()) });
+
+      // Đánh dấu chính xác lời nhắc trong danh sách local UI đã hoàn tất
+      if (reminderId) {
+        const t = localTasks.find(x => String(x.id) === String(reminderId));
+        if (t) {
+          t.notified = true;
+          saveTasks();
+          updateTaskListUI();
+        }
+      } else if (title) {
+        const t = localTasks.find(x => !x.notified && x.title === title);
+        if (t) {
+          t.notified = true;
+          saveTasks();
+          updateTaskListUI();
+        }
+      }
+
+      triggerProactiveAlarm({ title: title, scheduled_time: formatDateTime(new Date()), id: reminderId });
     };
 
     function toggleTaskList() {
@@ -1855,8 +1957,12 @@ QUY TẮC PHẢN HỒI:
       updateTaskListUI();
     }
 
-    // 5. TIẾN TRÌNH KIỂM TRA CHUÔNG NHẮC TỰ ĐỘNG CHẠY NỀN TRÊN ĐIỆN THOẠI
+    // 5. TIẾN TRÌNH KIỂM TRA CHUÔNG NHẮC DỰ PHÒNG TRÌNH DUYỆT (BROWSER ONLY)
+    // Invariant: Trên Android runtime (window.AndroidNova tồn tại), AlarmManager là thẩm quyền duy nhất!
     setInterval(() => {
+      if (typeof window !== 'undefined' && window.AndroidNova) {
+        return; // Tuyệt đối không tự kích hoạt chuông trùng lặp trên Android
+      }
       const nowStr = formatDateTime(new Date());
       localTasks.forEach(task => {
         if (!task.notified && task.scheduled_time <= nowStr) {
@@ -2241,13 +2347,10 @@ QUY TẮC PHẢN HỒI:
           clearTimeout(window._nativeTTSSafetyTimer);
           window._nativeTTSSafetyTimer = null;
         }
+        cancelAllAudioRequests();
         if (turnController) {
           turnController.cancelCurrentTurn("user_interrupted_orb");
         }
-        activeAudioRequests.clear();
-        window._nativeTTSFinishedCallback = null;
-        window.onNovaSpeechStarted = null;
-        window.onNativeAudioFailed = null;
         isSpeakingNow = false;
         isProcessingUtterance = false; // R01: Mở khóa trạng thái xử lý để lượt nói tiếp theo hoạt động tức thì
         const orb = document.getElementById("orbContainer");

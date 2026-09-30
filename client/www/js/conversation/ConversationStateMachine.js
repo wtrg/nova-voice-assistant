@@ -38,7 +38,7 @@ class ConversationStateMachine {
 
     switch (this.state) {
       case ConversationState.IDLE:
-        return nextState === ConversationState.LISTENING;
+        return nextState === ConversationState.LISTENING || nextState === ConversationState.WAITING_LLM;
 
       case ConversationState.LISTENING:
         return nextState === ConversationState.FINALIZING_STT || nextState === ConversationState.IDLE;

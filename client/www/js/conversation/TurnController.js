@@ -134,8 +134,11 @@ class TurnController {
       this.sm.transition("CANCELLED", { turnId: cancelledId, reason });
     }
 
-    // Dừng toàn bộ âm thanh phần cứng và web
+    // Dừng toàn bộ âm thanh phần cứng, timer và web
     if (typeof window !== 'undefined') {
+      if (typeof window.cancelAllAudioRequests === 'function') {
+        try { window.cancelAllAudioRequests(); } catch(e){}
+      }
       if (window.AndroidNova && typeof window.AndroidNova.stopAudio === 'function') {
         try { window.AndroidNova.stopAudio(); } catch(e){}
       }

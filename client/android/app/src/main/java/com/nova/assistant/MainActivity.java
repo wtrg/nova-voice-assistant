@@ -565,9 +565,12 @@ public class MainActivity extends BridgeActivity {
             if (title == null) title = "Làm việc & Học tập";
             String sessionId = intent.getStringExtra("alarm_session_id");
             if (sessionId == null) sessionId = "";
+            String reminderId = intent.getStringExtra("reminder_id");
+            if (reminderId == null) reminderId = "";
             intent.removeExtra("auto_alarm");
             final String safeTitle = title.replace("'", "\\'");
             final String safeSessionId = sessionId.replace("'", "\\'");
+            final String safeReminderId = reminderId.replace("'", "\\'");
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -577,7 +580,7 @@ public class MainActivity extends BridgeActivity {
                             "  var attempts = 0;\n" +
                             "  function tryTrigger() {\n" +
                             "    if (window.handleNativeAlarmTrigger) {\n" +
-                            "      window.handleNativeAlarmTrigger('" + safeTitle + "', '" + safeSessionId + "');\n" +
+                            "      window.handleNativeAlarmTrigger('" + safeTitle + "', '" + safeSessionId + "', '" + safeReminderId + "');\n" +
                             "    } else if (attempts < 20) {\n" +
                             "      attempts++;\n" +
                             "      setTimeout(tryTrigger, 200);\n" +
@@ -1099,12 +1102,21 @@ public class MainActivity extends BridgeActivity {
     }
 
     // =========================================================================
-    // QUẢN LÝ BÁO THỨC PHẦN CỨNG & KHÔI PHỤC SAU REBOOT (F-08, F-09)
+    // QUẢN LÝ BÁO THỨC PHẦN CỨNG & KHÔI PHỤC SAU REBOOT (F-08, F-09, STAGE 8)
     // =========================================================================
+    public static void saveAlarmToPrefs(Context context, String reminderId, String title, long timestampMillis) {
+        if (reminderId == null || reminderId.isEmpty()) return;
+        try {
+            int id = ReminderId.toRequestCode(reminderId);
+            SharedPreferences prefs = context.getSharedPreferences("nova_alarms_store", Context.MODE_PRIVATE);
+            prefs.edit().putString("alarm_" + id, reminderId + "|||" + title + "|||" + timestampMillis).apply();
+        } catch (Exception ignored) {}
+    }
+
     public static void saveAlarmToPrefs(Context context, int id, String title, long timestampMillis) {
         try {
             SharedPreferences prefs = context.getSharedPreferences("nova_alarms_store", Context.MODE_PRIVATE);
-            prefs.edit().putString("alarm_" + id, title + "|||" + timestampMillis).apply();
+            prefs.edit().putString("alarm_" + id, String.valueOf(id) + "|||" + title + "|||" + timestampMillis).apply();
         } catch (Exception ignored) {}
     }
 
@@ -1151,7 +1163,7 @@ public class MainActivity extends BridgeActivity {
                     );
                     AlarmManager.AlarmClockInfo clockInfo = new AlarmManager.AlarmClockInfo(timestampMillis, showPendingIntent);
                     alarmManager.setAlarmClock(clockInfo, pendingIntent);
-                    saveAlarmToPrefs(context, id, title, timestampMillis);
+                    saveAlarmToPrefs(context, reminderId, title, timestampMillis);
                     return true;
                 } catch (SecurityException se) {
                     Log.w("NovaAlarm", "SecurityException trên setAlarmClock, tự động fallback", se);
@@ -1163,7 +1175,7 @@ public class MainActivity extends BridgeActivity {
             } else {
                 alarmManager.set(AlarmManager.RTC_WAKEUP, timestampMillis, pendingIntent);
             }
-            saveAlarmToPrefs(context, id, title, timestampMillis);
+            saveAlarmToPrefs(context, reminderId, title, timestampMillis);
             return true;
         } catch (Exception e) {
             Log.e("NovaAlarm", "Lỗi đặt báo thức canonical:", e);
@@ -1274,12 +1286,16 @@ public class MainActivity extends BridgeActivity {
             @Override
             public void run() {
                 runOnJs("if (window.onNovaAudioEvent) window.onNovaAudioEvent('" + req + "', '" + ev + "');");
-                if ("started".equals(ev)) {
-                    runOnJs("if (window.onNovaSpeechStarted) window.onNovaSpeechStarted();");
-                } else if ("completed".equals(ev)) {
-                    runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
-                } else if ("failed".equals(ev)) {
-                    runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                // Invariant: Legacy global callbacks are allowed ONLY for no-request-ID compatibility.
+                // For non-empty requestId, emit ONLY onNovaAudioEvent(requestId, event).
+                if (req.isEmpty()) {
+                    if ("started".equals(ev)) {
+                        runOnJs("if (window.onNovaSpeechStarted) window.onNovaSpeechStarted();");
+                    } else if ("completed".equals(ev)) {
+                        runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                    } else if ("failed".equals(ev)) {
+                        runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                    }
                 }
             }
         });

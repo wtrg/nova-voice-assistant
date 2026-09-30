@@ -113,6 +113,7 @@ async def qr_web():
 class ChatRequest(BaseModel):
     text: str
     session_id: Optional[str] = "default"
+    turn_id: Optional[str] = None
 
 class ProactiveRequest(BaseModel):
     title: str = "Học bài"
@@ -124,6 +125,7 @@ class DialogueRequest(BaseModel):
     in_conversation: bool = False
     session_id: Optional[str] = "default"
     generate_audio: Optional[bool] = False
+    turn_id: Optional[str] = None
 
 class DialogueResponse(BaseModel):
     turn_id: str
@@ -137,6 +139,10 @@ class ChatResponse(BaseModel):
     reply: str
     audio_url: Optional[str] = ""
     action: Dict[str, Any]
+
+class DeviceAckRequest(BaseModel):
+    status: str  # "confirmed" | "device_schedule_failed"
+    error: Optional[str] = None
 
 @app.get("/health")
 async def health():
@@ -214,6 +220,13 @@ async def list_tasks():
     tasks = get_all_active_tasks()
     return {"tasks": tasks}
 
+@app.post("/api/reminders/{reminder_id}/device-ack")
+async def device_ack_reminder(reminder_id: str, req: DeviceAckRequest):
+    """Xác nhận trạng thái đặt lịch phần cứng Android (Stage 9: Two-phase commit)"""
+    from core.database import update_task_device_ack
+    updated = update_task_device_ack(reminder_id, req.status, req.error)
+    return {"ok": True, "reminder_id": reminder_id, "status": req.status, "updated": updated}
+
 @app.post("/api/proactive-prompt")
 async def get_proactive_prompt(req: ProactiveRequest):
     """Sinh câu thoại đôn đốc nhắc việc kèm câu hỏi đuôi trò chuyện và audio Cuppy"""
@@ -240,7 +253,7 @@ async def handle_dialogue(req: DialogueRequest):
     """
     clean_text = req.user_text.strip()
     session_id = req.session_id or "default"
-    turn_id = str(uuid.uuid4())
+    turn_id = req.turn_id.strip() if (req.turn_id and req.turn_id.strip()) else str(uuid.uuid4())
     
     # 1. Kiểm tra người dùng muốn kết thúc cuộc trò chuyện
     if assistant_agent.is_exit_phrase(clean_text):
@@ -295,7 +308,7 @@ async def handle_dialogue(req: DialogueRequest):
 async def chat_text(req: ChatRequest):
     """Nhận câu nói dạng text từ điện thoại, sinh câu trả lời bạn thân & file giọng Cuppy (F-07: session-isolated)"""
     session_id = req.session_id or "default"
-    turn_id = str(uuid.uuid4())
+    turn_id = req.turn_id.strip() if (req.turn_id and req.turn_id.strip()) else str(uuid.uuid4())
     reply, action = await run_in_threadpool(assistant_agent.process_command, req.text, session_id=session_id)
     if isinstance(action, dict) and action.get("action") == "upstream_error":
         error_code = action.get("error_code", "upstream_error")
