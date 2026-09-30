@@ -20,15 +20,16 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
-    - name: Set up Node.js 20
+    - name: Set up Node.js 22
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 22
 
-    - name: Install Client NPM dependencies
+    - name: Prepare Capacitor Android
       working-directory: client
       run: |
         npm install
+        npx cap sync android
 
     - name: Make Gradle wrapper executable
       working-directory: client/android
@@ -40,7 +41,7 @@ jobs:
 
     - name: Run Android Lint
       working-directory: client/android
-      run: ./gradlew lintDebug --no-daemon || true
+      run: ./gradlew lintDebug --no-daemon
 
     - name: Assemble Debug APK
       working-directory: client/android
