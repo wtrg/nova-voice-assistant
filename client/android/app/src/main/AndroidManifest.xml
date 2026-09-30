@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- 1. Trợ Lý Kỹ Thuật Số Mặc Định của Android (Nhấn giữ nút Nguồn / Vuốt góc màn hình) -->
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <!-- 2. Voice Command của Hệ Thống Android & Google Assistant -->
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <!-- 3. Deep Link Schema nova://listen hoặc nova://assistant -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nova" />
+            </intent-filter>
+
+        </activity>
+
+        <!-- Bộ tiếp nhận chuông báo thức chính xác của Android khi đã tắt app -->
+        <receiver android:name=".NovaAlarmReceiver" android:exported="false" />
+
+        <!-- Khôi phục lịch báo thức sau khi khởi động lại thiết bị (F-09) -->
+        <receiver
+            android:name=".NovaBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+
+        <!-- Khai báo Voice Interaction Service để Android hiển thị Nova trong mục Ứng dụng trợ lý kỹ thuật số (Default Digital Assistant) -->
+        <service
+            android:name=".NovaVoiceInteractionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true">
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/voice_interaction_service" />
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".NovaVoiceInteractionSessionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true" />
+
+        <service
+            android:name=".NovaRecognitionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true" />
+    </application>
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Quyền tối quan trọng cho trợ lý: Quét và mở trực tiếp mọi ứng dụng trên Android 11+ -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <package android:name="com.google.android.googlequicksearchbox" />
+        <package android:name="com.google.android.tts" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <package android:name="com.zing.zalo" />
+        <package android:name="com.zing.zalo.play" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.facebook.katana" />
+        <package android:name="com.facebook.lite" />
+        <package android:name="com.facebook.orca" />
+        <package android:name="com.facebook.mlite" />
+        <package android:name="com.ss.android.ugc.trill" />
+        <package android:name="com.zhiliaoapp.musically" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.android.chrome" />
+        <package android:name="com.shopee.vn" />
+        <package android:name="com.lazada.android" />
+        <package android:name="com.mservice.momopay" />
+        <package android:name="org.telegram.messenger" />
+    </queries>
+</manifest>

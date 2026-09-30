@@ -1,0 +1,2577 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="referrer" content="no-referrer">
+  <title>Nova AI - Bạn Thân Kỷ Luật (Standalone)</title>
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#090d16">
+  <link rel="icon" href="https://api.iconify.design/fluent-emoji:sparkles.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes pulse-glow {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(99, 102, 241, 0.6)); }
+      50% { transform: scale(1.06); filter: drop-shadow(0 0 45px rgba(168, 85, 247, 0.85)); }
+    }
+    @keyframes wave-bar {
+      0%, 100% { height: 6px; }
+      50% { height: 28px; }
+    }
+    .orb-glow {
+      animation: pulse-glow 3s infinite ease-in-out;
+      background: radial-gradient(circle at 30% 30%, #38bdf8, #818cf8 40%, #c084fc 70%, #4f46e5 100%);
+    }
+    .speaking-orb {
+      animation: pulse-glow 0.8s infinite ease-in-out !important;
+      background: radial-gradient(circle at 30% 30%, #f43f5e, #fb7185 40%, #c084fc 70%, #6366f1 100%) !important;
+    }
+    .listening-orb {
+      animation: pulse-glow 1.2s infinite ease-in-out !important;
+      background: radial-gradient(circle at 30% 30%, #10b981, #34d399 40%, #06b6d4 70%, #3b82f6 100%) !important;
+    }
+    .wave-active .w-bar:nth-child(1) { animation: wave-bar 0.7s infinite 0.1s; }
+    .wave-active .w-bar:nth-child(2) { animation: wave-bar 0.7s infinite 0.2s; }
+    .wave-active .w-bar:nth-child(3) { animation: wave-bar 0.7s infinite 0.3s; }
+    .wave-active .w-bar:nth-child(4) { animation: wave-bar 0.7s infinite 0.15s; }
+    .wave-active .w-bar:nth-child(5) { animation: wave-bar 0.7s infinite 0.25s; }
+  </style>
+</head>
+<body class="bg-[#090d16] text-white font-sans antialiased min-h-screen flex flex-col justify-between p-4 select-none">
+
+  <!-- Header -->
+  <header class="flex justify-between items-center pt-1 pb-3 border-b border-white/10">
+    <div>
+      <div class="flex items-center gap-2">
+        <h1 class="text-xl font-bold bg-gradient-to-r from-sky-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">NOVA AI</h1>
+        <button id="wakeBadge" onclick="toggleWakeWord()" title="Bật/Tắt tự động lắng nghe 'Hey Nova' rảnh tay" class="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition active:scale-95">
+          <span id="wakeDot" class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+          <span id="wakeStatusText">"Hey Nova": TẮT</span>
+        </button>
+      </div>
+      <p id="statusBadge" class="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+        <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+        <span id="statusLabel">Chạm quả cầu 🔮 hoặc mic 🎙️ để nói</span>
+      </p>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <div id="convBadge" class="hidden px-2 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold flex items-center gap-1 animate-pulse">
+        <span>🎙️ Hội thoại</span>
+      </div>
+      <button onclick="toggleHelpModal()" title="Hướng dẫn 4 cách gọi Nova" class="p-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 hover:text-white transition text-xs flex items-center gap-1 border border-sky-500/20">
+        ⚡ <span>Cách gọi</span>
+      </button>
+      <button onclick="toggleTaskList()" title="Danh sách lịch hẹn" class="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition text-xs flex items-center gap-1">
+        📅 <span id="taskCountBadge" class="text-[10px] bg-indigo-600 px-1.5 py-0.2 rounded-full">0</span>
+      </button>
+      <button onclick="openServerConfigModal()" title="Cài đặt kết nối máy chủ" class="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-white transition text-xs flex items-center gap-1 border border-emerald-500/20">
+        ⚙️ <span>Kết nối</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Modal Cấu Hình Kết Nối Máy Chủ & API Key -->
+  <div id="serverConfigModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 max-w-sm w-full shadow-2xl relative text-left">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+          <span>⚙️</span> Cài Đặt Kết Nối Máy Chủ
+        </h3>
+        <button onclick="closeServerConfigModal()" class="text-slate-400 hover:text-white text-lg p-1">&times;</button>
+      </div>
+      <p class="text-xs text-slate-400 mb-3">
+        Chọn hoặc nhập địa chỉ máy chủ Nova đang chạy trên máy tính:
+      </p>
+      <div class="space-y-3">
+        <div>
+          <label class="text-[11px] font-semibold text-slate-300 block mb-1">Địa chỉ máy chủ (Backend URL):</label>
+          <input id="inputServerUrl" type="text" placeholder="https://...trycloudflare.com hoặc http://192.168..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono">
+        </div>
+        <div class="flex gap-1.5">
+          <button type="button" onclick="setQuickServerUrl('tunnel')" class="flex-1 bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px] py-1.5 px-2 rounded-lg border border-slate-700 transition">
+            🌐 Nhập Tunnel
+          </button>
+          <button type="button" onclick="setQuickServerUrl('local')" class="flex-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[11px] py-1.5 px-2 rounded-lg border border-slate-700 transition">
+            📶 Wi-Fi Nội Bộ
+          </button>
+        </div>
+        <div>
+          <label class="text-[11px] font-semibold text-slate-300 block mb-1">Google Gemini API Key (Tùy chọn):</label>
+          <input id="inputGeminiKey" type="password" placeholder="Để trống nếu dùng máy chủ backend" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono">
+          <span class="text-[10px] text-slate-500 block mt-0.5">Nếu nhập key cá nhân, máy sẽ gọi trực tiếp Gemini không cần mở PC.</span>
+        </div>
+        <div id="pingStatus" class="hidden text-xs p-2 rounded-xl border"></div>
+        <div class="flex gap-2 pt-1">
+          <button type="button" onclick="testServerConnection()" id="btnTestPing" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2 rounded-xl text-xs border border-slate-600 transition">
+            ⚡ Thử kết nối
+          </button>
+          <button type="button" onclick="saveServerConfig()" class="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-95 text-slate-950 font-bold py-2 rounded-xl text-xs shadow-lg transition">
+            💾 Lưu cấu hình
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Hướng Dẫn 4 Cách Đánh Thức Nova Thần Tốc -->
+  <div id="helpModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-indigo-500/40 rounded-3xl p-5 max-w-sm w-full shadow-2xl relative">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-sm font-bold text-sky-400 flex items-center gap-1.5">
+          <span>⚡</span> 4 Cách Đánh Thức Nova Thần Tốc
+        </h3>
+        <button onclick="toggleHelpModal()" class="text-slate-400 hover:text-white text-base">✕</button>
+      </div>
+
+      <div class="space-y-2.5 text-xs text-slate-300 max-h-80 overflow-y-auto pr-1">
+        <!-- Cách 1: Nút nguồn / Vuốt góc (Trợ lý mặc định) -->
+        <div class="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-2.5">
+          <div class="font-bold text-indigo-300 flex items-center gap-1 mb-1">
+            <span>👑 1. Trợ Lý Mặc Định Hệ Thống (Mọi lúc, mọi nơi):</span>
+          </div>
+          <p class="text-[11px] text-slate-300 leading-relaxed">
+            Nhấn nút <b>"⚙️ Mở Cài Đặt"</b> ở màn hình chính (hoặc vào Cài đặt điện thoại ➔ Ứng dụng mặc định ➔ Ứng dụng trợ lý số ➔ Chọn <b>Nova</b>).<br>
+            👉 Sau đó ở <b>bất kỳ đâu</b> (màn hình chính, đang lướt TikTok, Facebook, hay màn hình khóa), chỉ cần <b>Nhấn giữ nút Nguồn 0.5s</b> hoặc <b>Vuốt từ góc dưới màn hình</b> là Nova bung lên và mở mic nghe ngay!
+          </p>
+        </div>
+
+        <!-- Cách 2: Trực tiếp gọi "Hey Nova" / "Nova ơi" rảnh tay -->
+        <div class="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-2.5">
+          <div class="font-bold text-emerald-300 flex items-center gap-1 mb-1">
+            <span>🎙️ 2. Gọi "Hey Nova" / "Nova ơi" Rảnh Tay Trực Tiếp:</span>
+          </div>
+          <p class="text-[11px] text-slate-300 leading-relaxed">
+            Ngay khi đang mở app, cậu không cần bấm nút nào cả! Chỉ cần nói: <i>"Hey Nova"</i> hoặc <i>"Nova ơi"</i> là Nova tự phản hồi <i>"Tớ nghe đây cậu ơi!"</i> và lắng nghe cậu nói tiếp. Hoặc nói liền: <i>"Hey Nova mở YouTube bài hát Em của ngày hôm qua"</i> để Nova thực hiện ngay!
+          </p>
+        </div>
+
+        <!-- Cách 3: Qua Google Gemini ("Ok Google, mở Nova") -->
+        <div class="bg-sky-950/40 border border-sky-500/30 rounded-xl p-2.5">
+          <div class="font-bold text-sky-300 flex items-center gap-1 mb-1">
+            <span>🤖 3. Đánh Thức Qua Google Gemini:</span>
+          </div>
+          <p class="text-[11px] text-slate-300 leading-relaxed">
+            Khi điện thoại đang tắt hoặc khóa màn hình, cậu chỉ cần nói với Gemini: <i>"OK Google, mở Nova"</i>. Nova sẽ tự động bật lên và mở mic lắng nghe lệnh tiếp theo của cậu!
+          </p>
+        </div>
+
+        <!-- Cách 4: Chuông nhắc việc độc lập -->
+        <div class="bg-purple-950/40 border border-purple-500/30 rounded-xl p-2.5">
+          <div class="font-bold text-purple-300 flex items-center gap-1 mb-1">
+            <span>⏰ 4. Chuông Độc Lập Kể Cả Khi Tắt App:</span>
+          </div>
+          <p class="text-[11px] text-slate-300 leading-relaxed">
+            Đến giờ hẹn, Nova tự động réo chuông báo thức qua loa ngoài và tự mở mic mời cậu trò chuyện rảnh tay 100%!
+          </p>
+        </div>
+      </div>
+
+      <button onclick="toggleHelpModal()" class="w-full mt-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 rounded-xl text-xs">
+        Đã hiểu, bắt đầu thôi!
+      </button>
+    </div>
+  </div>
+
+  <!-- Danh sách lịch trình lưu trữ trực tiếp trên máy -->
+  <div id="taskListDrawer" class="hidden my-2 p-3 bg-slate-900/90 border border-indigo-500/30 rounded-2xl shadow-xl">
+    <div class="flex justify-between items-center mb-2">
+      <span class="text-xs font-bold text-indigo-300">📋 Lịch trình trên điện thoại của cậu:</span>
+      <button onclick="clearAllTasks()" class="text-[10px] text-rose-400 hover:text-rose-300">Xóa tất cả</button>
+    </div>
+    <div id="taskItemsContainer" class="space-y-1.5 max-h-36 overflow-y-auto text-xs text-slate-300">
+      <p class="text-slate-500 italic text-center py-2">Chưa có lịch hẹn nào. Hãy nói "Hey Nova, lên lịch..." để thêm nhé!</p>
+    </div>
+  </div>
+
+  <!-- Trung Tâm: Quả Cầu Phát Sáng Nova -->
+  <main class="flex-1 flex flex-col items-center justify-center my-3">
+    <div id="orbContainer" onclick="handleOrbClick()" class="w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative active:scale-95 shadow-2xl">
+      <div class="w-20 h-20 rounded-full bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center shadow-inner">
+        <svg id="micIcon" class="w-8 h-8 text-white drop-shadow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 02-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+      </div>
+    </div>
+
+    <!-- Nút Giữ để nói (Push to Talk) và Nút Gửi ngay -->
+    <div class="flex items-center justify-center gap-2 mt-2.5">
+      <button id="btnPushToTalk" class="px-3.5 py-1.5 rounded-full bg-indigo-600/70 hover:bg-indigo-600 border border-indigo-400/40 text-white text-xs font-semibold flex items-center gap-1 shadow-md select-none touch-none active:bg-indigo-500 transition">
+        <span>🎙️ Giữ để nói (Không ngắt)</span>
+      </button>
+      <button id="btnInstantSend" onclick="finalizeAndSubmitUtterance()" class="hidden px-3.5 py-1.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 active:scale-95 text-white text-xs font-bold shadow-lg flex items-center gap-1 animate-pulse">
+        <span>⚡ Gửi ngay</span>
+      </button>
+    </div>
+
+    <!-- Sóng Âm Thanh (Waveform) -->
+    <div id="waveBox" class="flex items-center gap-1.5 h-8 mt-2">
+      <div class="w-1 bg-sky-400 rounded-full w-bar h-1"></div>
+      <div class="w-1 bg-indigo-400 rounded-full w-bar h-1"></div>
+      <div class="w-1 bg-purple-400 rounded-full w-bar h-1"></div>
+      <div class="w-1 bg-pink-400 rounded-full w-bar h-1"></div>
+      <div class="w-1 bg-sky-400 rounded-full w-bar h-1"></div>
+    </div>
+
+    <!-- Hộp thoại Hội Thoại -->
+    <div class="mt-2.5 bg-white/10 backdrop-blur-md border border-white/15 px-4 py-2.5 rounded-2xl text-center max-w-xs shadow-xl w-full">
+      <p id="userBubble" class="text-[11px] text-indigo-300 mb-1 hidden font-medium">"..."</p>
+      <p id="novaBubble" class="text-xs text-slate-100 font-semibold leading-relaxed">"Chào Cậu! Tớ là Nova, trợ lý bạn thân thông minh độc lập của cậu nè!"</p>
+    </div>
+  </main>
+
+  <!-- Khu Vực Thử Nghiệm Chuông Nhắc Chủ Động & Hội Thoại Rảnh Tay -->
+  <section class="bg-gradient-to-br from-indigo-900/40 via-purple-900/30 to-slate-900/80 border border-indigo-500/30 rounded-2xl p-3 mb-2.5 shadow-lg">
+    <div class="flex justify-between items-center mb-2">
+      <span class="text-xs font-bold text-white flex items-center gap-1.5">
+        <span>⏰</span> Thử Nghiệm Chuông & Giọng Cuppy
+      </span>
+      <span id="countdownBadge" class="hidden text-[11px] text-amber-300 font-mono font-bold bg-amber-500/20 px-2 py-0.5 rounded-md">
+        00:05s
+      </span>
+    </div>
+    
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <!-- Nút Test Chuông Nhắc Sau 5 Giây -->
+      <button id="btnTest5s" onclick="startProactiveTest(5)" class="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-semibold py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1 shadow-md">
+        <span>🔔 Test Nhắc Sau 5s</span>
+      </button>
+      
+      <!-- Nút Nghe Thử File Giọng Cuppy Gốc Phòng Thu -->
+      <button onclick="playStudioCuppyVoice()" class="bg-purple-600 hover:bg-purple-500 active:scale-95 text-white text-xs font-semibold py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1 shadow-md">
+        <span>🎵 Giọng Cuppy Gốc</span>
+      </button>
+    </div>
+
+    <!-- Nút Bấm Nói Trực Tiếp Bằng Mic Nova -->
+    <div class="mb-2">
+      <button onclick="handleOrbClick()" class="w-full bg-gradient-to-r from-sky-600 via-indigo-600 to-purple-600 hover:opacity-90 active:scale-98 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow-lg border border-sky-400/40">
+        <span>🎙️ BẤM NÓI CHUYỆN (MIC NOVA CHUẨN)</span>
+      </button>
+    </div>
+
+    <!-- Nút Thao Tác Nhanh Khi Hội Thoại -->
+    <div class="grid grid-cols-2 gap-2">
+      <button onclick="sendUserUtterance('Có, nói chuyện với tớ đi')" class="bg-emerald-600/80 hover:bg-emerald-500 active:scale-95 text-white text-xs font-semibold py-2 px-2 rounded-xl transition flex items-center justify-center gap-1 shadow">
+        <span>💬 Trả lời "Có"</span>
+      </button>
+      <button onclick="sendUserUtterance('Kết thúc cuộc trò chuyện')" class="bg-rose-600/40 hover:bg-rose-600/60 border border-rose-500/40 text-rose-200 text-xs py-2 px-2 rounded-xl transition flex items-center justify-center gap-1">
+        <span>⏹️ Nói "Kết Thúc"</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Khung Cài Đặt Trợ Lý 1 Chạm & Tùy Chọn Tông Giọng -->
+  <section class="space-y-2 mb-2.5">
+    <!-- Nút Mở Thẳng Cài Đặt Trợ Lý Android -->
+    <div class="bg-gradient-to-r from-sky-950/70 via-indigo-950/60 to-purple-950/70 border border-sky-500/40 rounded-2xl p-2.5 shadow-lg flex items-center justify-between gap-2">
+      <div class="text-left">
+        <p class="text-xs font-bold text-sky-300 flex items-center gap-1.5">
+          <span>👑</span> Cài Làm Trợ Lý Mặc Định:
+        </p>
+        <p class="text-[10px] text-slate-300 mt-0.5">Nhấn giữ nút Nguồn hoặc Vuốt góc gọi Nova</p>
+      </div>
+      <button onclick="handleOpenAssistantSettings()" class="bg-sky-500 hover:bg-sky-400 active:scale-95 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs shadow transition whitespace-nowrap">
+        ⚙️ Mở Cài Đặt
+      </button>
+    </div>
+
+    <!-- Giọng Trợ Lý Cuppy Gốc -->
+    <div class="bg-gradient-to-r from-purple-950/70 via-indigo-950/60 to-purple-950/70 border border-purple-500/40 rounded-2xl p-2.5 shadow-lg flex items-center justify-between gap-2">
+      <div class="text-left">
+        <p class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+          <span>🎙️</span> Giọng Trợ Lý Độc Quyền:
+        </p>
+        <p class="text-[10px] text-slate-300 mt-0.5">Giọng Cuppy Gốc (Saydi AI Studio)</p>
+      </div>
+      <button onclick="playStudioCuppyVoice()" class="bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow transition whitespace-nowrap">
+        ▶️ Nghe Thử Giọng Gốc
+      </button>
+    </div>
+  </section>
+
+  <!-- Gõ phím hoặc chip câu lệnh -->
+  <footer class="flex items-center gap-2">
+    <button onclick="handleOrbClick()" title="Bấm nói bằng giọng nói" class="bg-gradient-to-r from-sky-600 to-indigo-600 hover:opacity-90 active:scale-95 text-white px-3 py-2.5 rounded-xl text-sm font-bold shadow flex items-center justify-center">
+      🎙️
+    </button>
+    <input id="textInput" type="text" placeholder="Nhắn tin hoặc hỏi Nova bất kỳ điều gì..." class="flex-1 bg-white/10 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-400">
+    <button onclick="handleSendText()" class="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-xl px-4 py-2.5 text-xs font-semibold shadow">
+      Gửi
+    </button>
+  </footer>
+
+  <audio id="cuppyAudioPlayer" playsinline preload="auto"></audio>
+
+  <script>
+    // ==========================================
+    // CẤU HÌNH AN TOÀN TRÊN THIẾT BỊ (F-01, F-11, F-13)
+    // ==========================================
+    // Khóa Gemini không lưu cứng trong APK client; lấy từ cấu hình người dùng hoặc gọi backend
+    let GEMINI_API_KEY = localStorage.getItem("nova_user_gemini_key") || "";
+    const GEMINI_MODEL = localStorage.getItem("nova_gemini_model") || "gemini-flash-lite-latest";
+
+    const DEFAULT_TUNNEL_URL = "https://cattle-end-rivers-sisters.trycloudflare.com";
+    const DEFAULT_LOCAL_URL = "http://192.168.100.48:8000";
+
+    function getApiBaseUrl() {
+      const saved = localStorage.getItem("nova_backend_url");
+      if (saved && saved.trim()) return saved.trim().replace(/\/+$/, "");
+      // Quick Tunnel có hostname thay đổi khi khởi động lại; dùng máy chủ LAN đang cấu hình
+      // làm mặc định, còn tunnel chỉ dùng khi người dùng nhập URL đang hoạt động.
+      return DEFAULT_LOCAL_URL;
+    }
+
+    // Helper an toàn đọc JSON từ LocalStorage (F-11: ngăn chặn JSON hỏng làm chết app)
+    function safeGetJson(key, fallback = []) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        return parsed !== null && parsed !== undefined ? parsed : fallback;
+      } catch (e) {
+        console.warn(`[Storage] Lỗi đọc JSON "${key}", dùng fallback an toàn:`, e);
+        return fallback;
+      }
+    }
+
+    // Helper mã hóa HTML chống Stored XSS (F-03)
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    const CONV_STORAGE_KEY = "nova_conversation_history_v1";
+    function loadSavedConversation() {
+      const list = safeGetJson(CONV_STORAGE_KEY, []);
+      return Array.isArray(list) ? list : [];
+    }
+    function saveConversation() {
+      try {
+        if (conversationHistory && conversationHistory.length > 0) {
+          localStorage.setItem(CONV_STORAGE_KEY, JSON.stringify(conversationHistory.slice(-24)));
+        } else {
+          localStorage.removeItem(CONV_STORAGE_KEY);
+        }
+      } catch(e){}
+    }
+
+    var isRecording = false;
+    var inConversationMode = false;
+    var conversationHistory = loadSavedConversation();
+    var recognition = null;
+    var countdownTimer = null;
+    var waitingForAlarmConfirmation = false;
+    var alarmConfirmTimeout = null;
+    var accumulatedSpeech = "";
+    var isPushToTalk = false;
+    var speechPauseTimer = null;
+    const player = document.getElementById("cuppyAudioPlayer");
+
+    function showInstantSendButton(show) {
+      const btn = document.getElementById("btnInstantSend");
+      if (btn) {
+        if (show) btn.classList.remove("hidden");
+        else btn.classList.add("hidden");
+      }
+    }
+
+    // Khởi tạo danh sách công việc từ LocalStorage an toàn 100% (F-11)
+    let localTasks = safeGetJson("nova_tasks", []);
+
+    // =========================================================================
+    // 1. THUẬT TOÁN KHỬ LẶP TỪ & LẶP CÂU TRIỆT ĐỂ (DEDUPLICATION ENGINE)
+    // =========================================================================
+    function deduplicateSpeech(text) {
+      if (!text) return "";
+      let words = text.trim().split(/\s+/);
+      if (words.length <= 1) return text.trim();
+
+      // 1. Lọc bỏ các từ đơn lặp liên tiếp (vd: "tớ tớ muốn" -> "tớ muốn")
+      let singleCleaned = [];
+      for (let i = 0; i < words.length; i++) {
+        if (i === 0 || words[i].toLowerCase() !== singleCleaned[singleCleaned.length - 1].toLowerCase()) {
+          singleCleaned.push(words[i]);
+        }
+      }
+      words = singleCleaned;
+
+      // 2. Lọc bỏ các cụm từ (phrase) từ 2 đến 8 từ bị lặp (vd: "mai tớ đi học mai tớ đi học" -> "mai tớ đi học")
+      let n = words.length;
+      for (let phraseLen = Math.min(8, Math.floor(n / 2)); phraseLen >= 1; phraseLen--) {
+        let i = 0;
+        while (i + 2 * phraseLen <= words.length) {
+          let p1 = words.slice(i, i + phraseLen).join(" ").toLowerCase();
+          let p2 = words.slice(i + phraseLen, i + 2 * phraseLen).join(" ").toLowerCase();
+          if (p1 === p2) {
+            words.splice(i + phraseLen, phraseLen);
+          } else {
+            i++;
+          }
+        }
+      }
+      return words.join(" ");
+    }
+
+    // Âm thanh báo nhận diện thành công (Web Audio API không cần tải mạng, phản hồi 0ms)
+    function playAcknowledgeChime() {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1); // A5
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.16);
+      } catch(e){}
+    }
+
+    // Âm thanh báo Nova đã nói xong, sẵn sàng mở mic nghe tiếp (ChatGPT Voice / Gemini Live chime)
+    function playReadyToListenChime() {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+        osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.12); // G5
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.18);
+      } catch(e){}
+    }
+
+    // =========================================================================
+    // =========================================================================
+    // 2. BỘ NHẬN DIỆN GIỌNG NÓI & ENGINE WAKE WORD ("HEY NOVA" / "NOVA ƠI")
+    // =========================================================================
+    var silenceTimer = null;
+    var currentRecognizedText = "";
+    var finalTranscriptSoFar = "";
+    var isProcessingUtterance = false;
+    var isSpeakingNow = false;
+    var wakeWordEnabled = false;
+
+    // Các mẫu đánh thức: "Hey Nova", "Nova ơi", "Ê Nova", "Alo Nova", "Ok Nova", "Chào Nova", "Nova"
+    const WAKE_PATTERNS = [
+      /^(?:hey|ê|alo|ok|chào|bạn)?\s*nova(?:\s+ơi)?\b/i,
+      /\bnova\s+ơi\b/i,
+      /\bhey\s+nova\b/i,
+      /\balo\s+nova\b/i,
+      /\bê\s+nova\b/i
+    ];
+
+    function detectWakeWord(text) {
+      if (!text) return null;
+      const clean = text.trim();
+      for (const pattern of WAKE_PATTERNS) {
+        if (pattern.test(clean)) {
+          const command = clean.replace(pattern, "").trim();
+          return { matched: true, command: command };
+        }
+      }
+      return null;
+    }
+
+    const hasNativeSpeech = () => !!(window.AndroidNova && window.AndroidNova.startNativeSpeech);
+
+    // =========================================================================
+    // CÁC HÀM XỬ LÝ NHẬN DIỆN GIỌNG NÓI PHẦN CỨNG NATIVE TỪ ANDROID JAVA
+    // =========================================================================
+    window.onNativeSpeechReady = function() {
+      console.log("Native Speech: Sẵn sàng nghe!");
+      isRecording = true;
+      setListeningVisual(true, !inConversationMode);
+      document.getElementById("statusLabel").innerText = inConversationMode 
+        ? "Đang lắng nghe cậu nói... (Nói xong dừng lại để Nova trả lời)" 
+        : 'Đang lắng nghe...';
+    };
+
+    window.onNativeSpeechBeginning = function() {
+      console.log("Native Speech: Bắt đầu phát hiện giọng nói...");
+      document.getElementById("statusLabel").innerText = "Đang nghe cậu nói...";
+    };
+
+    window.onNativeSpeechRms = function(rmsdB) {
+      const waveBox = document.getElementById("waveBox");
+      if (waveBox && isRecording) {
+        waveBox.classList.add("wave-active");
+        const bars = waveBox.querySelectorAll(".w-bar");
+        const scale = Math.min(2.5, Math.max(0.6, (rmsdB + 2) / 3.5));
+        bars.forEach((b, idx) => {
+          const h = Math.round(scale * (6 + (idx % 3) * 6));
+          b.style.height = `${h}px`;
+        });
+      }
+    };
+
+    window.onNativeSpeechEnd = function() {
+      console.log("Native Speech: Người dùng đã dứt lời (VAD Speech End)");
+      document.getElementById("statusLabel").innerText = "Đang xử lý...";
+    };
+
+    function finalizeAndSubmitUtterance() {
+      if (isProcessingUtterance) return;
+      if (speechPauseTimer) {
+        clearTimeout(speechPauseTimer);
+        speechPauseTimer = null;
+      }
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+      showInstantSendButton(false);
+
+      const raw = (accumulatedSpeech || currentRecognizedText || "").trim();
+      const textToSend = deduplicateSpeech(raw);
+
+      accumulatedSpeech = "";
+      currentRecognizedText = "";
+      finalTranscriptSoFar = "";
+
+      if (!textToSend) {
+        stopListening();
+        document.getElementById("statusLabel").innerText = inConversationMode 
+          ? "Nova đang chờ bạn... (Chạm quả cầu để nói tiếp)" 
+          : "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+        return;
+      }
+
+      // Phản hồi lập tức bằng âm thanh & rung để người dùng biết máy đã nhận diện trọn vẹn
+      playAcknowledgeChime();
+      if (navigator.vibrate) navigator.vibrate(35);
+
+      document.getElementById("statusLabel").innerText = "Nova đang trả lời ngay...";
+      stopListening();
+      sendUserUtterance(textToSend);
+    }
+
+    // Tương thích ngược với các lệnh gọi cũ
+    function triggerUtteranceSubmission() {
+      finalizeAndSubmitUtterance();
+    }
+
+    window.onNativeSpeechResult = function(text, isFinal) {
+      if (isSpeakingNow) return;
+      console.log(`Native Speech Result (final=${isFinal}):`, text);
+
+      if (!text || !text.trim()) {
+        if (isFinal && !accumulatedSpeech) {
+          isRecording = false;
+          stopListening();
+          document.getElementById("statusLabel").innerText = inConversationMode 
+            ? "Nova đang chờ bạn... (Chạm quả cầu để nói tiếp)" 
+            : "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+        }
+        return;
+      }
+
+      const cleanedSpeech = deduplicateSpeech(text.trim());
+
+      // 1. Chỉ lọc Wake Word ("Hey Nova") NẾU người dùng chủ động bật chế độ thụ động
+      // VÀ chưa vào phiên đàm thoại chủ động:
+      if (!inConversationMode && wakeWordEnabled) {
+        const wake = detectWakeWord(cleanedSpeech);
+        if (wake && wake.matched) {
+          accumulatedSpeech = "";
+          currentRecognizedText = "";
+          stopListening();
+          playAcknowledgeChime();
+          if (navigator.vibrate) navigator.vibrate([40, 50, 40]);
+
+          inConversationMode = true;
+          document.getElementById("convBadge").classList.remove("hidden");
+          if (wake.command && wake.command.length >= 2) {
+            sendUserUtterance(wake.command);
+          } else {
+            window.triggerAutoAssistant();
+          }
+          return;
+        }
+
+        if (isFinal) {
+          isRecording = false;
+          accumulatedSpeech = "";
+          currentRecognizedText = "";
+          // R04: Tự động tiếp tục lắng nghe nền (rearm) sau 250ms nếu chưa khớp Wake Word
+          setTimeout(() => {
+            if (!inConversationMode && wakeWordEnabled && !isSpeakingNow && !isRecording) {
+              startListening();
+            }
+          }, 250);
+        }
+        return;
+      }
+
+      // 2. MỌI TRƯỜNG HỢP KHÁC: Người dùng đã mở mic để nói chuyện trực tiếp với Nova!
+      inConversationMode = true;
+      const convBadge = document.getElementById("convBadge");
+      if (convBadge) convBadge.classList.remove("hidden");
+
+      // Nếu có từ Hey Nova/Nova ơi ở đầu câu thì loại bỏ để lấy lệnh sạch
+      const wake = detectWakeWord(cleanedSpeech);
+      const actualSegment = (wake && wake.matched && wake.command) ? wake.command : cleanedSpeech;
+
+      // NỐI DỒN THÔNG MINH VÀO ACCUMULATED SPEECH (CHỐNG NGẮT NHỊP / NGHỈ THỞ)
+      if (isFinal) {
+        if (!accumulatedSpeech) {
+          accumulatedSpeech = actualSegment;
+        } else if (!accumulatedSpeech.toLowerCase().endsWith(actualSegment.toLowerCase())) {
+          accumulatedSpeech = (accumulatedSpeech + " " + actualSegment).trim();
+        }
+        currentRecognizedText = accumulatedSpeech;
+      } else {
+        currentRecognizedText = (accumulatedSpeech ? accumulatedSpeech + " " + actualSegment : actualSegment).trim();
+      }
+
+      const displayText = isFinal ? accumulatedSpeech : currentRecognizedText;
+      const userBubble = document.getElementById("userBubble");
+      userBubble.classList.remove("hidden");
+      userBubble.innerText = `"${displayText}"`;
+
+      // Hiển thị nút Gửi Ngay để người dùng bấm gửi lập tức nếu muốn
+      showInstantSendButton(true);
+
+      // Nếu đang trong chế độ Giữ Để Nói (Push-To-Talk): không đếm ngược ngắt câu
+      if (isPushToTalk) {
+        document.getElementById("statusLabel").innerText = "Đang giữ mic nói... Nói xong thả tay ra là gửi!";
+        return;
+      }
+
+      // CHẾ ĐỘ NGHỈ TỰ NHIÊN ĐÀM THOẠI (CHATGPT VOICE / GEMINI LIVE)
+      // Cho phép người dùng dừng lại suy nghĩ hoặc lấy hơi trong 2200ms (2.2s)
+      document.getElementById("statusLabel").innerText = "Đang nghe tiếp... (Tự động gửi sau 2.2s hoặc bấm ⚡ Gửi)";
+
+      if (speechPauseTimer) clearTimeout(speechPauseTimer);
+      speechPauseTimer = setTimeout(() => {
+        finalizeAndSubmitUtterance();
+      }, 2200);
+
+      // Nếu Android recognizer đã chốt một phân đoạn (isFinal), re-arm nhẹ nhàng sau 150ms để hứng câu tiếp theo
+      if (isFinal && hasNativeSpeech() && inConversationMode && !isSpeakingNow) {
+        setTimeout(() => {
+          if (inConversationMode && !isSpeakingNow && !isProcessingUtterance && hasNativeSpeech()) {
+            try {
+              window.AndroidNova.startNativeSpeech();
+            } catch(e) {
+              console.warn("Re-arm native speech error:", e);
+            }
+          }
+        }, 150);
+      }
+    };
+
+    window.onNativeSpeechError = function(errorCode) {
+      console.warn("Native Speech Error code:", errorCode);
+
+      // Nếu là lỗi No Match (7) hoặc Speech Timeout (6) do người dùng đang tạm ngưng lấy hơi:
+      if ((errorCode === 6 || errorCode === 7) && accumulatedSpeech && speechPauseTimer) {
+        console.log("Speech paused/silence during accumulation, waiting for timer or resume...");
+        // Re-arm nhẹ nhàng nếu người dùng vẫn đang nói
+        if (!isSpeakingNow && inConversationMode && hasNativeSpeech() && !isPushToTalk) {
+          setTimeout(() => {
+            if (!isSpeakingNow && inConversationMode && !isProcessingUtterance && hasNativeSpeech()) {
+              try { window.AndroidNova.startNativeSpeech(); } catch(e){}
+            }
+          }, 150);
+        }
+        return;
+      }
+
+      // Nếu người dùng đã nói được một đoạn và mic gặp sự cố ngắt kết nối: nộp câu đã nói!
+      if (accumulatedSpeech && errorCode !== 9) {
+        finalizeAndSubmitUtterance();
+        return;
+      }
+
+      // Nếu là lỗi bận máy tạm thời (8, -1), re-arm êm ái trong nền khi đang nói chuyện:
+      if ((errorCode === 8 || errorCode === -1) && inConversationMode && !isSpeakingNow) {
+        console.log("SpeechRecognizer transient error " + errorCode + ", scheduling quiet re-arm...");
+        setTimeout(() => {
+          if (inConversationMode && !isSpeakingNow && !isProcessingUtterance && hasNativeSpeech()) {
+            try { window.AndroidNova.startNativeSpeech(); } catch(e){}
+          }
+        }, 300);
+        return;
+      }
+
+      // Đã loại bỏ hoàn toàn cơ chế Fallback Google Voice Dialog popup. Dừng nhận diện êm ái.
+
+      isRecording = false;
+      stopListening();
+      setListeningVisual(false);
+      showInstantSendButton(false);
+
+      let msg = "";
+      if (errorCode === 6) {
+        msg = "Chưa nghe thấy tiếng. Chạm vào mic khi bạn sẵn sàng nói nhé!";
+      } else if (errorCode === 7) {
+        msg = "Tớ chưa nghe rõ câu vừa rồi. Cậu chạm mic nói lại nhé!";
+      } else if (errorCode === 9) {
+        msg = "Vui lòng cấp quyền Microphone cho Nova!";
+      } else if (errorCode === 1 || errorCode === 2) {
+        msg = "Mạng hơi chập chờn khi nhận diện giọng nói...";
+      } else if (errorCode === 8) {
+        msg = "Mic đang bận, đã sẵn sàng trở lại!";
+      } else {
+        msg = "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+      }
+      document.getElementById("statusLabel").innerText = msg;
+    };
+
+    // =========================================================================
+    // DỰ PHÒNG CHO TRÌNH DUYỆT (WEB SPEECH API FALLBACK)
+    // =========================================================================
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.lang = 'vi-VN';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event) => {
+        if (isSpeakingNow) return;
+
+        let interimText = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const item = event.results[i];
+          if (item.isFinal) {
+            finalTranscriptSoFar += " " + item[0].transcript;
+          } else {
+            interimText += item[0].transcript;
+          }
+        }
+
+        let rawCombined = (finalTranscriptSoFar + " " + interimText).trim();
+        let cleanedSpeech = deduplicateSpeech(rawCombined);
+
+        if (!cleanedSpeech || isProcessingUtterance) return;
+
+        if (!inConversationMode && wakeWordEnabled) {
+          const wake = detectWakeWord(cleanedSpeech);
+          if (wake && wake.matched) {
+            currentRecognizedText = "";
+            finalTranscriptSoFar = "";
+            stopListening();
+
+            playAcknowledgeChime();
+            if (navigator.vibrate) navigator.vibrate([40, 50, 40]);
+
+            inConversationMode = true;
+            document.getElementById("convBadge").classList.remove("hidden");
+            if (wake.command && wake.command.length >= 2) {
+              sendUserUtterance(wake.command);
+            } else {
+              window.triggerAutoAssistant();
+            }
+          }
+          return;
+        }
+
+        // MỌI TRƯỜNG HỢP KHÁC:
+        inConversationMode = true;
+        const convBadge = document.getElementById("convBadge");
+        if (convBadge) convBadge.classList.remove("hidden");
+
+        const wake = detectWakeWord(cleanedSpeech);
+        const actualText = (wake && wake.matched && wake.command) ? wake.command : cleanedSpeech;
+        currentRecognizedText = actualText;
+
+        const userBubble = document.getElementById("userBubble");
+        userBubble.classList.remove("hidden");
+        userBubble.innerText = `"${currentRecognizedText}"`;
+        document.getElementById("statusLabel").innerText = "Đang nghe tiếp... (Tự động gửi sau 2.2s hoặc bấm ⚡ Gửi)";
+        showInstantSendButton(true);
+
+        if (speechPauseTimer) clearTimeout(speechPauseTimer);
+        speechPauseTimer = setTimeout(() => {
+          finalizeAndSubmitUtterance();
+        }, 2200);
+      };
+
+      recognition.onspeechend = () => {
+        if (inConversationMode && currentRecognizedText && !isProcessingUtterance && !isPushToTalk) {
+          if (speechPauseTimer) clearTimeout(speechPauseTimer);
+          speechPauseTimer = setTimeout(() => {
+            finalizeAndSubmitUtterance();
+          }, 2200);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Web Speech recognition error:", event.error);
+        if (currentRecognizedText) {
+          finalizeAndSubmitUtterance();
+        } else {
+          stopListening();
+          document.getElementById("statusLabel").innerText = "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+        }
+      };
+
+      recognition.onend = () => {
+        isRecording = false;
+        stopListeningVisual();
+        if (inConversationMode) {
+          if (currentRecognizedText && !isProcessingUtterance) {
+            finalizeAndSubmitUtterance();
+          } else {
+            document.getElementById("statusLabel").innerText = "Nova đang chờ bạn... (Chạm quả cầu để nói tiếp)";
+          }
+        }
+      };
+    }
+
+    // =========================================================================
+    // 3. ENGINE PHÁT VOICE ĐA TẦNG SIÊU ỔN ĐỊNH (MULTI-STAGE TTS ENGINE)
+    // =========================================================================
+    let audioUnlocked = false;
+    let currentTTSAudio = null;
+    let viVoice = null;
+
+    function initVoices() {
+      if (!('speechSynthesis' in window)) return;
+      const voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi')) || null;
+      }
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = initVoices;
+      initVoices();
+    }
+
+    function unlockAudioContext() {
+      if (audioUnlocked) return;
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          ctx.resume();
+        }
+        audioUnlocked = true;
+      } catch(e){}
+    }
+    document.addEventListener("click", unlockAudioContext, { once: true });
+    document.addEventListener("touchstart", unlockAudioContext, { once: true });
+
+    // Phát file studio cuppy-vi.wav tích hợp sẵn trong APK
+    function playStudioCuppyVoice() {
+      const orb = document.getElementById("orbContainer");
+      const wave = document.getElementById("waveBox");
+      orb.className = "w-36 h-36 rounded-full speaking-orb cursor-pointer transition-all duration-300 flex items-center justify-center relative shadow-2xl";
+      wave.classList.add("wave-active");
+      document.getElementById("novaBubble").innerText = '"Hãy hít một hơi thật sâu, mỉm cười, và sẵn sàng cho mọi thử thách phía trước nhé..." (Giọng Cuppy Gốc)';
+
+      const audio = new Audio("assets/cuppy-vi.wav");
+      currentTTSAudio = audio;
+      audio.onended = () => {
+        orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+        wave.classList.remove("wave-active");
+      };
+      audio.onerror = () => {
+        const mp3Fallback = new Audio("assets/audit_saydi-cuppy-vi.mp3");
+        mp3Fallback.onended = () => {
+          orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+          wave.classList.remove("wave-active");
+        };
+        mp3Fallback.onerror = () => {
+          fallbackSpeechSynthesis("Hãy hít một hơi thật sâu, mỉm cười, và sẵn sàng cho mọi thử thách phía trước nhé.", () => {
+            orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+            wave.classList.remove("wave-active");
+          });
+        };
+        mp3Fallback.play().catch(e => console.warn(e));
+      };
+      audio.play().catch(e => {
+        console.warn("Cần chạm màn hình để phát:", e);
+      });
+    }
+
+    // Hàm phát stream âm thanh qua HTML5 Audio với timeout an toàn
+    // Hàm phát stream âm thanh qua HTML5 Audio với timeout tùy biến và callback onStart tức thì
+    function playAudioWithTimeout(url, onEnded, onError, timeoutMs = 3500, onStart = null) {
+      if (currentTTSAudio) {
+        try { currentTTSAudio.pause(); } catch(e){}
+        currentTTSAudio = null;
+      }
+
+      const audio = new Audio();
+      audio.referrerPolicy = "no-referrer";
+      // Không đặt audio.crossOrigin = "anonymous" vì một số CDN/Google TTS không gửi CORS header
+      audio.defaultPlaybackRate = 1.10;
+      audio.playbackRate = 1.10;
+      currentTTSAudio = audio;
+      let hasStarted = false;
+
+      audio.onplay = () => {
+        audio.playbackRate = 1.10;
+        hasStarted = true;
+        if (onStart) onStart();
+      };
+      audio.onended = () => {
+        currentTTSAudio = null;
+        onEnded();
+      };
+      audio.onerror = (e) => {
+        currentTTSAudio = null;
+        onError(e);
+      };
+
+      const timeoutId = setTimeout(() => {
+        if (!hasStarted) {
+          console.warn("Audio stream timeout:", url);
+          try { audio.pause(); } catch(e){}
+          currentTTSAudio = null;
+          onError(new Error("Timeout"));
+        }
+      }, timeoutMs);
+
+      audio.src = url;
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          clearTimeout(timeoutId);
+          currentTTSAudio = null;
+          onError(err);
+        });
+      }
+    }
+
+    // Ánh xạ CHÍNH XÁC câu thoại hệ thống cố định tới file âm thanh Cuppy gốc trong APK (0ms latency, chất lượng phòng thu)
+    function getPrebuiltCuppyAudio(text) {
+      const clean = (text || "").toLowerCase().replace(/[*#_`~]/g, "").replace(/\s+/g, " ").trim();
+
+      if (clean.includes("đang mở youtube")) return "assets/cuppy_open_youtube.wav";
+      if (clean.includes("đang mở zalo")) return "assets/cuppy_open_zalo.wav";
+      if (clean.includes("đang mở facebook")) return "assets/cuppy_open_facebook.wav";
+      if (clean.includes("đang mở tiktok")) return "assets/cuppy_open_tiktok.wav";
+      if (clean.includes("đang mở camera")) return "assets/cuppy_open_camera.wav";
+      if (clean.includes("đang mở bản đồ") || clean.includes("đang mở google maps")) return "assets/cuppy_open_maps.wav";
+      if (clean.includes("chưa tìm thấy ứng dụng")) return "assets/cuppy_app_not_found.wav";
+      if (clean.includes("tắt mic đây") || clean.includes("tập trung làm việc nha")) return "assets/cuppy_goodbye.wav";
+      if (clean.includes("buôn chuyện tí nào") || clean.includes("buôn chuyện tí")) return "assets/cuppy_lets_chat.wav";
+      if (clean.includes("tớ là nova đây, tớ đang lắng nghe") || clean.includes("tớ là nova đây")) return "assets/cuppy_hello.wav";
+      if (clean.includes("trợ lý bạn thân của cậu đây")) return "assets/cuppy_welcome.wav";
+      if (clean.includes("chốt đơn luôn") || clean.includes("đã ghi nhớ lịch hẹn")) return "assets/cuppy_ok.wav";
+      if (clean.includes("mạng hơi chập chờn")) return "assets/cuppy_network_error.wav";
+      if (clean.includes("đến giờ làm việc rồi kìa") || clean.includes("vào bàn làm ngay thôi nào")) return "assets/cuppy_alarm.wav";
+      if (clean.includes("hãy hít một hơi thật sâu")) return "assets/cuppy-vi.wav";
+
+      return null;
+    }
+
+    function splitTextIntoVoiceChunks(text, maxLen = 85) {
+      if (!text) return [];
+      const clean = text.replace(/[*#_`~]/g, "").replace(/\s+/g, " ").trim();
+      const sentences = clean.split(/([.?!;\n]+)/);
+      const chunks = [];
+      let current = "";
+      for (let i = 0; i < sentences.length; i += 2) {
+        const s = (sentences[i] || "").trim();
+        const punc = (sentences[i + 1] || "").trim();
+        const full = (s + (punc ? punc + " " : "")).trim();
+        if (!full) continue;
+
+        // Tối ưu chunk đầu tiên cực ngắn (~55-65 ký tự) để Cuppy cất giọng siêu tốc (<200ms)
+        const targetLimit = (chunks.length === 0) ? Math.min(maxLen, 65) : maxLen;
+
+        if (current.length + full.length + 1 <= targetLimit) {
+          current = (current + " " + full).trim();
+        } else {
+          if (current) chunks.push(current);
+          const nextLimit = (chunks.length === 0) ? Math.min(maxLen, 65) : maxLen;
+          if (full.length > nextLimit) {
+            const words = full.split(" ");
+            let sub = "";
+            for (const w of words) {
+              const curLimit = (chunks.length === 0) ? Math.min(maxLen, 65) : maxLen;
+              if (sub.length + w.length + 1 <= curLimit) {
+                sub = (sub + " " + w).trim();
+              } else {
+                if (sub) chunks.push(sub);
+                sub = w;
+              }
+            }
+            if (sub) chunks.push(sub);
+            current = "";
+          } else {
+            current = full;
+          }
+        }
+      }
+      if (current) chunks.push(current);
+      return chunks;
+    }
+
+    function playSingleVoiceChunk(text, onFinished, onStart = null) {
+      if (!text || !text.trim()) {
+        if (onStart) onStart();
+        if (onFinished) onFinished();
+        return;
+      }
+
+      const encoded = encodeURIComponent(text.trim());
+      // DUY NHẤT 1 GIỌNG NHÂN VẬT GỐC CUPPY: Loại bỏ 100% Chị Google và Giọng Nam Robot
+      const cuppyTunnel = `${getApiBaseUrl()}/api/cuppy-tts?text=${encoded}`;
+
+      let hasFinishedChunk = false;
+      const finishChunk = () => {
+        if (hasFinishedChunk) return;
+        hasFinishedChunk = true;
+        if (onFinished) onFinished();
+      };
+
+      let hasStartedChunk = false;
+      const triggerStartChunk = () => {
+        if (!hasStartedChunk) {
+          hasStartedChunk = true;
+          if (onStart) onStart();
+        }
+      };
+
+      // Đảm bảo chữ hiện đồng bộ sau tối đa 200ms nếu audio chưa kịp phát
+      setTimeout(triggerStartChunk, 200);
+
+      // CƠ CHẾ 1: NẾU TRÊN THIẾT BỊ ANDROID (Sử dụng Hardware MediaPlayer phát luồng âm thanh giọng Cuppy gốc)
+      if (window.AndroidNova && typeof window.AndroidNova.playAudioUrl === 'function') {
+        let isDone = false;
+        let connectTimeout = null;
+
+        const onDoneCallback = () => {
+          if (isDone) return;
+          isDone = true;
+          if (connectTimeout) clearTimeout(connectTimeout);
+          window._nativeTTSFinishedCallback = null;
+          window.onNativeAudioFailed = null;
+          window.onNovaSpeechStarted = null;
+          finishChunk();
+        };
+
+        const onAudioFailed = () => {
+          if (isDone) return;
+          isDone = true;
+          if (connectTimeout) clearTimeout(connectTimeout);
+          window._nativeTTSFinishedCallback = null;
+          window.onNativeAudioFailed = null;
+          window.onNovaSpeechStarted = null;
+          console.warn("Cuppy audio failed, playing Cuppy network notice instead of male voice");
+          // TUYỆT ĐỐI KHÔNG chuyển sang giọng nam/chị Google, nếu lỗi mạng thì phát câu thông báo lỗi giọng Cuppy gốc
+          try {
+            window.AndroidNova.playAudioUrl("file:///android_asset/public/assets/cuppy_network_error.wav");
+          } catch(e) {}
+          setTimeout(finishChunk, 2000);
+        };
+
+        const onStartedCallback = () => {
+          // R02: Khi âm thanh đã thực sự bắt đầu phát trên phần cứng, HỦY connect timeout!
+          // Hardware MediaPlayer sẽ tự động gọi onDoneCallback khi bài đọc kết thúc (dù 3s, 8s, 20s hay 45s)
+          if (connectTimeout) {
+            clearTimeout(connectTimeout);
+            connectTimeout = null;
+          }
+          triggerStartChunk();
+        };
+
+        window._nativeTTSFinishedCallback = onDoneCallback;
+        window.onNovaSpeechStarted = onStartedCallback;
+        window.onNativeAudioFailed = onAudioFailed;
+
+        // Bao gồm cả thời gian server sinh clip Cuppy lần đầu; hủy khi MediaPlayer phát.
+        connectTimeout = setTimeout(() => {
+          console.warn("Cuppy audio connect timeout (35s)");
+          onAudioFailed();
+        }, 35000);
+
+        try {
+          window.AndroidNova.playAudioUrl(cuppyTunnel);
+          return;
+        } catch (e) {
+          console.warn("playAudioUrl error:", e);
+          onAudioFailed();
+          return;
+        }
+      }
+
+      // CƠ CHẾ 2: TRÌNH DUYỆT WEB (HTML5 Audio phát trực tiếp luồng Cuppy gốc)
+      playAudioWithTimeout(cuppyTunnel, finishChunk, (err) => {
+        console.warn("Web audio Cuppy error, playing prebuilt Cuppy notice:", err);
+        playAudioWithTimeout("assets/cuppy_network_error.wav", finishChunk, () => {
+          finishChunk();
+        }, 3000, onStart);
+      }, 7000, onStart);
+    }
+
+    function playVoiceChunksSequentially(chunks, onFinished, onStart) {
+      if (!chunks || chunks.length === 0) {
+        if (onStart) onStart();
+        if (onFinished) onFinished();
+        return;
+      }
+
+      let index = 0;
+      let hasStarted = false;
+
+      // HÀM PRE-FETCH: Kỹ thuật Pipelining chuẩn của các hãng trợ lý hàng đầu (OpenAI / Google)
+      // Trong khi câu N đang phát ra loa, âm thầm kích hoạt server sinh sẵn câu N+1 vào cache
+      function prefetchChunk(idx) {
+        if (idx < chunks.length) {
+          const nextText = chunks[idx];
+          if (nextText && nextText.trim()) {
+            const prebuilt = getPrebuiltCuppyAudio(nextText);
+            if (!prebuilt) {
+              const enc = encodeURIComponent(nextText.trim());
+              const prefetchUrl = `${getApiBaseUrl()}/api/cuppy-tts?text=${enc}`;
+              fetch(prefetchUrl, { method: "GET", mode: "no-cors" }).catch(() => {});
+            }
+          }
+        }
+      }
+
+      function playNext() {
+        if (!isSpeakingNow) return; // Người dùng chạm ngắt lời
+        if (index >= chunks.length) {
+          onFinished();
+          return;
+        }
+
+        const chunk = chunks[index];
+        const currentIndex = index;
+        index++;
+
+        // Kích hoạt sinh trước câu tiếp theo ngay khi câu hiện tại chuẩn bị phát!
+        prefetchChunk(currentIndex + 1);
+
+        playSingleVoiceChunk(chunk, () => {
+          playNext();
+        }, () => {
+          if (!hasStarted) {
+            hasStarted = true;
+            if (onStart) onStart();
+          }
+        });
+      }
+
+      // Kích hoạt phát câu đầu tiên và prefetch câu thứ 2
+      playNext();
+    }
+
+    // =========================================================================
+    // NATIVE ANDROID TTS ENGINE (0ms Latency, 100% Offline, Hỗ Trợ Kể Chuyện Dài)
+    // =========================================================================
+    function playNativeAndroidTTS(text, onFinished, onStart = null) {
+      if (onStart) onStart();
+      window._nativeTTSFinishedCallback = onFinished;
+
+      // Tính toán thời lượng an toàn dự phòng (~85ms mỗi ký tự + 3500ms dự phòng)
+      const safetyTimeoutMs = Math.max(4000, Math.round(text.length * 85) + 3500);
+      if (window._nativeTTSSafetyTimer) clearTimeout(window._nativeTTSSafetyTimer);
+      window._nativeTTSSafetyTimer = setTimeout(() => {
+        console.log("Native TTS safety timeout reached, executing finish callback");
+        if (window._nativeTTSFinishedCallback) {
+          const cb = window._nativeTTSFinishedCallback;
+          window._nativeTTSFinishedCallback = null;
+          cb();
+        }
+      }, safetyTimeoutMs);
+
+      try {
+        window.AndroidNova.speak(text);
+        return true;
+      } catch (err) {
+        console.warn("AndroidNova.speak error:", err);
+        if (window._nativeTTSSafetyTimer) {
+          clearTimeout(window._nativeTTSSafetyTimer);
+          window._nativeTTSSafetyTimer = null;
+        }
+        window._nativeTTSFinishedCallback = null;
+        return false;
+      }
+    }
+
+    // Nhận thông báo phát xong giọng nói từ UtteranceProgressListener trong Android Java
+    window.onNovaSpeechEnded = function() {
+      console.log("onNovaSpeechEnded received from Android");
+      if (window._nativeTTSSafetyTimer) {
+        clearTimeout(window._nativeTTSSafetyTimer);
+        window._nativeTTSSafetyTimer = null;
+      }
+      if (window._nativeTTSFinishedCallback) {
+        const cb = window._nativeTTSFinishedCallback;
+        window._nativeTTSFinishedCallback = null;
+        cb();
+      }
+    };
+
+    window.onNativeTTSFailed = function() {
+      console.warn("onNativeTTSFailed received from Android");
+      if (window._nativeTTSFinishedCallback) {
+        const cb = window._nativeTTSFinishedCallback;
+        window._nativeTTSFinishedCallback = null;
+        cb();
+      }
+    };
+
+    // Hàm phát giọng thoại của Nova:
+    // isAiResponse = true: BẮT BUỘC đọc đúng 100% từng chữ của câu trả lời AI!
+    // onStartCallback: Kích hoạt tại đúng miligiây âm thanh bắt đầu cất tiếng -> hiện chữ đồng bộ 100%!
+    function speakNovaResponse(text, onEndedCallback, isAiResponse = false, onStartCallback = null) {
+      const cleanText = text.replace(/[*#_`~]/g, "").replace(/\s+/g, " ").trim();
+      if (!cleanText) {
+        if (onStartCallback) onStartCallback();
+        if (onEndedCallback) onEndedCallback();
+        return;
+      }
+
+      isSpeakingNow = true;
+      stopListening();
+
+      let hasTriggeredStart = false;
+      const triggerStart = () => {
+        if (!hasTriggeredStart) {
+          hasTriggeredStart = true;
+          if (onStartCallback) onStartCallback();
+        }
+      };
+
+      // Bảo vệ: Nếu sau 250ms audio chưa kịp phát, vẫn hiển thị chữ để người dùng không phải chờ lâu
+      setTimeout(triggerStart, 250);
+
+      const orb = document.getElementById("orbContainer");
+      const wave = document.getElementById("waveBox");
+      if (orb) orb.className = "w-36 h-36 rounded-full speaking-orb cursor-pointer transition-all duration-300 flex items-center justify-center relative shadow-2xl";
+      if (wave) wave.classList.add("wave-active");
+
+      let isFinished = false;
+      const finishSpeaking = () => {
+        if (isFinished) return;
+        isFinished = true;
+        isSpeakingNow = false;
+        currentTTSAudio = null;
+        if (orb) orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+        if (wave) wave.classList.remove("wave-active");
+        if (onEndedCallback) {
+          onEndedCallback();
+        }
+      };
+
+      // 1. NẾU LÀ CÂU LỆNH HỆ THỐNG CỐ ĐỊNH 100% CHÍNH XÁC: Ưu tiên file giọng gốc phòng thu
+      const prebuiltAudio = getPrebuiltCuppyAudio(cleanText);
+      if (prebuiltAudio) {
+        console.log("Playing Prebuilt Cuppy Voice:", prebuiltAudio);
+        if (window.AndroidNova && typeof window.AndroidNova.playAudioUrl === 'function') {
+          window._nativeTTSFinishedCallback = finishSpeaking;
+          window.onNovaSpeechStarted = triggerStart;
+          window.onNativeAudioFailed = () => {
+            const chunks = splitTextIntoVoiceChunks(cleanText, 140);
+            playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart);
+          };
+          try {
+            window.AndroidNova.playAudioUrl("file:///android_asset/public/" + prebuiltAudio);
+            return;
+          } catch(e) {
+            console.warn("Error playing prebuilt audio via playAudioUrl:", e);
+          }
+        }
+        playAudioWithTimeout(prebuiltAudio, finishSpeaking, (err) => {
+          console.warn("Prebuilt audio error, falling back to dynamic voice:", err);
+          const chunks = splitTextIntoVoiceChunks(cleanText, 140);
+          playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart);
+        }, 3000, triggerStart);
+        return;
+      }
+
+      // 2. MỌI CÂU THOẠI AI, KỂ CHUYỆN, GIẢI THÍCH, TÂM SỰ:
+      // Tách thành từng phân đoạn câu tự nhiên (~100-140 ký tự) để phát tuần tự mượt mà, không bao giờ mất tiếng!
+      const chunks = splitTextIntoVoiceChunks(cleanText, 140);
+      playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart);
+    }
+
+    function fallbackSpeechSynthesis(text, onEnded, onStart = null) {
+      if (window.AndroidNova && typeof window.AndroidNova.speak === 'function') {
+        const ok = playNativeAndroidTTS(text, onEnded, onStart);
+        if (ok) return;
+      }
+
+      if ('speechSynthesis' in window) {
+        try {
+          if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'vi-VN';
+          if (viVoice) utterance.voice = viVoice;
+          // Luôn tinh chỉnh pitch 1.3 và rate 1.1 để giữ tông nữ nhí nhảnh, không bao giờ bị nam robot trầm
+          utterance.pitch = 1.3;
+          utterance.rate = 1.1;
+
+          let doneCalled = false;
+          const done = () => {
+            if (!doneCalled) {
+              doneCalled = true;
+              if (onEnded) onEnded();
+            }
+          };
+
+          utterance.onstart = () => {
+            if (onStart) onStart();
+          };
+          utterance.onend = done;
+          utterance.onerror = done;
+
+          const maxWait = Math.max(1800, text.length * 55);
+          setTimeout(done, maxWait);
+
+          window.speechSynthesis.speak(utterance);
+          return;
+        } catch(e) {
+          console.warn("fallbackSpeechSynthesis error:", e);
+        }
+      }
+      if (onStart) onStart();
+      setTimeout(onEnded, 800);
+    }
+
+    function getDeviceSessionId() {
+      let id = localStorage.getItem("nova_device_session_id");
+      if (!id) {
+        id = "device_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 9);
+        localStorage.setItem("nova_device_session_id", id);
+      }
+      return id;
+    }
+
+    async function callBackendDialogue(userText) {
+      const primaryUrl = getApiBaseUrl();
+      const candidates = [...new Set([primaryUrl, DEFAULT_LOCAL_URL, DEFAULT_TUNNEL_URL, "http://10.0.2.2:8000"].filter(Boolean))];
+
+      let lastError = null;
+      for (const baseUrl of candidates) {
+        let timeoutId = null;
+        try {
+          if (window.AndroidNova && typeof window.AndroidNova.setServerBaseUrl === 'function') {
+            try { window.AndroidNova.setServerBaseUrl(baseUrl); } catch(e){}
+          }
+          const controller = new AbortController();
+          // Backend có thể chờ Gemini đến 12 giây; client cần thêm thời gian cho tunnel và JSON.
+          timeoutId = setTimeout(() => controller.abort(), 18000);
+          const res = await fetch(`${baseUrl}/api/dialogue`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_text: userText,
+              in_conversation: inConversationMode,
+              session_id: getDeviceSessionId(),
+              generate_audio: false
+            }),
+            signal: controller.signal
+          });
+          if (!res.ok) {
+            let body = {};
+            try { body = await res.json(); } catch (e) {}
+            const error = new Error(body.error || `Máy chủ Nova trả HTTP ${res.status}`);
+            error.code = body.error_code || (res.status === 429 ? "quota_exceeded" : "server_error");
+            error.retryable = body.retryable === true;
+            throw error;
+          }
+          const data = await res.json();
+          // Cập nhật lại URL chạy thành công vào localStorage để lần sau dùng ngay
+          if (baseUrl !== localStorage.getItem("nova_backend_url")) {
+            localStorage.setItem("nova_backend_url", baseUrl);
+            console.log("[Backend] Tự động chọn máy chủ thành công:", baseUrl);
+          }
+          let replyText = (data.reply || "").replace(/[*#]/g, "").trim();
+          let actionResult = typeof data.action === 'object' ? data.action : { action: data.action || "chat" };
+          return { reply: replyText, action: actionResult, audio_url: data.audio_url };
+        } catch (err) {
+          console.warn(`[Backend] Thử kết nối ${baseUrl} thất bại:`, err.message || err);
+          lastError = err;
+          // Lỗi khóa, quota hoặc model không thể chữa bằng cách thử lại cùng backend ở URL khác.
+          if (err.retryable === false) break;
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
+        }
+      }
+      throw lastError || new Error("Không thể kết nối đến máy chủ Nova");
+    }
+
+    // =========================================================================
+    // 4. GỌI GOOGLE GEMINI TỐC ĐỘ CAO (FAST FIRST-TOKEN INFERENCE)
+    // =========================================================================
+    async function callGeminiDirect(userText) {
+      // F-01: Nếu client không cấu hình key riêng, gọi an toàn qua Backend Dialogue API (bảo mật tuyệt đối API key)
+      if (!GEMINI_API_KEY) {
+        return await callBackendDialogue(userText);
+      }
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+      conversationHistory.push({
+        role: "user",
+        parts: [{ text: userText }]
+      });
+      if (conversationHistory.length > 24) {
+        conversationHistory = conversationHistory.slice(-24);
+      }
+      while (conversationHistory.length > 0 && conversationHistory[0].role !== "user") {
+        conversationHistory.shift();
+      }
+      saveConversation();
+
+      const nowStr = new Date().toLocaleString("vi-VN");
+      const systemInstruction = `Bạn là Nova, trợ lý ảo giọng nói tiếng Việt thân thiện, thông minh, ấm áp và có trí nhớ tuyệt vời.
+Thời điểm hiện tại: ${nowStr}.
+Xưng hô: 'tớ - cậu'.
+QUY TẮC PHẢN HỒI:
+1. KHI NGƯỜI DÙNG YÊU CẦU KỂ CHUYỆN HOẶC KỂ LẠI CÂU CHUYỆN ĐÃ CHIA SẺ:
+- Hãy nhập vai người bạn kể chuyện tài ba, truyền cảm và sinh động! Kể câu chuyện hoàn chỉnh, có mở đầu, diễn biến tình tiết cuốn hút và cái kết trọn vẹn (khoảng 150 - 300 từ).
+- TUYỆT ĐỐI KHÔNG né tránh, không trả lời khơi khơi cụt lủn, không hỏi ngược lại mà hãy lập tức kể câu chuyện thật hay cho bạn của mình.
+- ĐẶC BIỆT KHI NGƯỜI DÙNG NÓI 'kể lại câu chuyện tớ vừa dặn/kể' hoặc 'kể lại chuyện lúc nãy': Hãy tìm kỹ trong toàn bộ lịch sử trò chuyện phía trên xem người dùng đã chia sẻ câu chuyện gì, và thuật lại một cách tỉ mỉ, đầy đủ và trân trọng. Nếu trong lịch sử chưa có câu chuyện nào người dùng kể, hãy dịu dàng thông báo: 'Tớ nhớ là trước đó cậu chưa kể chi tiết câu chuyện đó cho tớ nè! Cậu kể cho tớ nghe đi, tớ đang rất chăm chú lắng nghe đây!'
+2. VỚI CÂU HỎI THÔNG THƯỜNG / HỎI ĐÁP / TÂM SỰ: Trả lời thông minh, tự nhiên, đi thẳng vào trọng tâm, ấm áp như ChatGPT Voice và Gemini Live.
+3. TUYỆT ĐỐI KHÔNG DÙNG ký tự Markdown (*, #, gạch đầu dòng, bảng biểu), KHÔNG dùng emoji để bộ máy phát âm giọng nói đọc trơn tru không vấp.
+4. PHÂN BIỆT RÕ HỎI ĐÁP VÀ RA LỆNH:
+- Tuyệt đối không gọi function launch_app nếu người dùng chỉ hỏi kiến thức/hỏi thăm hoặc yêu cầu kể chuyện.
+- CHỈ GỌI function 'launch_app' khi người dùng THỰC SỰ RA LỆNH mở ứng dụng hoặc yêu cầu nghe nhạc/tìm video/chỉ đường (ví dụ: 'mở youtube', 'bật nhạc sơn tùng', 'chỉ đường đến hồ gươm', 'mở zalo').
+- CHỈ GỌI function 'schedule_tasks' khi người dùng yêu cầu hẹn giờ, nhắc nhở hoặc chốt lịch trình công việc.`;
+
+      const tools = [{
+        function_declarations: [
+          {
+            name: "schedule_tasks",
+            description: "Lên lịch các nhiệm vụ nhắc nhở cho người dùng khi người dùng yêu cầu hoặc đã chốt lịch trình",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                tasks: {
+                  type: "ARRAY",
+                  description: "Danh sách công việc cần lên lịch",
+                  items: {
+                    type: "OBJECT",
+                    properties: {
+                      title: { type: "STRING", description: "Tên công việc cần làm" },
+                      scheduled_time: { type: "STRING", description: "Giờ hẹn (vd: '14:30', '18h', '+15m')" },
+                      app_to_open: { type: "STRING", description: "Tên ứng dụng mở kèm nếu có" }
+                    },
+                    required: ["title", "scheduled_time"]
+                  }
+                }
+              },
+              required: ["tasks"]
+            }
+          },
+          {
+            name: "launch_app",
+            description: "Mở ứng dụng hoặc tìm kiếm sâu nội dung trong ứng dụng trên điện thoại (vd: mở bài hát hoặc video trên YouTube, mở Google Maps chỉ đường, mở Camera, Zalo, Facebook, TikTok, v.v.)",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                app_name: {
+                  type: "STRING",
+                  description: "Tên ứng dụng cần mở (vd: 'youtube', 'maps', 'camera', 'zalo', 'facebook', 'tiktok', 'chrome', 'báo thức')"
+                },
+                query: {
+                  type: "STRING",
+                  description: "Nội dung tìm kiếm cụ thể: tên bài hát, video, địa điểm, từ khóa nếu người dùng yêu cầu (vd: 'Nơi này có anh', 'Hồ Hoàn Kiếm')"
+                }
+              },
+              required: ["app_name"]
+            }
+          }
+        ]
+      }];
+
+      const payload = {
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents: conversationHistory,
+        tools: tools,
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024
+        }
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const error = new Error(`Gemini HTTP Error: ${res.status}`);
+        error.code = res.status === 404 ? "model_unavailable" :
+          (res.status === 401 || res.status === 403 ? "api_key_invalid" :
+          (res.status === 429 ? "quota_exceeded" : "server_error"));
+        throw error;
+      }
+
+      const data = await res.json();
+      const candidate = data.candidates && data.candidates[0];
+      if (!candidate) throw new Error("Không có phản hồi từ Gemini");
+
+      let replyText = "";
+      let actionResult = { action: "chat" };
+
+      const parts = candidate.content.parts || [];
+      for (const part of parts) {
+        // Kiểm tra Tool Calling launch_app (Mở ứng dụng & tìm kiếm sâu)
+        if (part.functionCall && part.functionCall.name === "launch_app") {
+          const args = part.functionCall.args || {};
+          const appName = args.app_name || "";
+          const query = args.query || "";
+          let opened = false;
+          if (window.AndroidNova && window.AndroidNova.openApp) {
+            opened = window.AndroidNova.openApp(appName, query);
+          }
+
+          if (opened) {
+            if (query) {
+              replyText = `Dạ được ngay! Tớ đang mở ${appName} và tìm "${query}" cho cậu đây!`;
+            } else {
+              replyText = `Okela! Đang mở ứng dụng ${appName} cho cậu ngay đây!`;
+            }
+          } else {
+            replyText = `Tớ chưa tìm thấy ứng dụng ${appName} trên máy của cậu. Cậu kiểm tra lại xem đã cài đặt chưa nhé!`;
+          }
+          actionResult = { action: "launch_app", app_name: appName, query: query, success: opened };
+          break;
+        }
+
+        // Kiểm tra Tool Calling schedule_tasks (Lên lịch trình)
+        if (part.functionCall && part.functionCall.name === "schedule_tasks") {
+          const tasks = part.functionCall.args.tasks || [];
+          const summaries = [];
+          for (const t of tasks) {
+            const timeStr = parseNaturalTime(t.scheduled_time);
+            if (timeStr) {
+              addLocalTask(t.title, timeStr, t.app_to_open || "");
+              const displayTime = timeStr.split(" ").pop();
+              summaries.push(`${t.title} lúc ${displayTime}`);
+            }
+          }
+          actionResult = { action: "schedule_tasks", tasks: tasks, summary: summaries };
+          if (summaries.length > 0) {
+            replyText = `Chốt đơn luôn! Tớ đã ghi nhớ lịch: ${summaries.join(", ")}. Đến giờ tớ sẽ réo cậu ngay, chuẩn bị tinh thần tập trung làm việc nha!`;
+          } else {
+            replyText = "Tớ chưa nghe rõ mốc thời gian cậu muốn hẹn. Cậu có thể nói rõ giờ giúp tớ được không, ví dụ như 8 giờ sáng hoặc 15 phút nữa nhé!";
+          }
+          break;
+        }
+
+        if (part.text) {
+          replyText += part.text;
+        }
+      }
+
+      replyText = replyText.replace(/[*#]/g, "").trim();
+      if (!replyText) replyText = "Tớ nghe rồi nè! Cậu cần tớ hỗ trợ gì tiếp không?";
+
+      conversationHistory.push({
+        role: "model",
+        parts: [{ text: replyText }]
+      });
+      saveConversation();
+
+      return { reply: replyText, action: actionResult };
+    }
+
+    // 4. BỘ PHÂN TÍCH THỜI GIAN & QUẢN LÝ LỊCH TRÌNH LOCAL (F-12)
+    function parseNaturalTime(timeStr) {
+      if (!timeStr) return null;
+      const now = new Date();
+      const clean = timeStr.toLowerCase().trim();
+
+      // 1. Dạng tương đối: "nửa tiếng", "1 tiếng nữa", "X phút nữa/sau", "+15m"
+      if (clean.includes("nửa tiếng") || clean.includes("30 phút")) {
+        const target = new Date(now.getTime() + 30 * 60000);
+        return formatDateTime(target);
+      }
+      const mHourRel = clean.match(/(\d+)\s*(?:tiếng|giờ)\s*(?:nữa|sau)?/);
+      const mMinRel = clean.match(/(\d+)\s*(?:phút|m|p)\s*(?:nữa|sau)?/);
+      if (clean.includes('+') || clean.includes('nữa') || clean.includes('sau') || clean.includes('phút') || mMinRel) {
+        let addMins = 0;
+        if (mHourRel && !clean.includes(':')) addMins += parseInt(mHourRel[1]) * 60;
+        if (mMinRel) addMins += parseInt(mMinRel[1]);
+        if (addMins > 0) {
+          const target = new Date(now.getTime() + addMins * 60000);
+          return formatDateTime(target);
+        }
+      }
+
+      // 2. Dạng mốc giờ cụ thể: "12h", "12 giờ", "12g", "12:30", "12h30", "7h tối", "2h chiều", "12 giờ trưa"
+      const mExact = clean.match(/(\d{1,2})\s*(?:[:hH]|giờ|g)\s*(\d{0,2})/);
+      if (mExact) {
+        let h = parseInt(mExact[1]);
+        let m = mExact[2] ? parseInt(mExact[2]) : 0;
+        if ((clean.includes("chiều") || clean.includes("tối")) && h < 12) {
+          h += 12;
+        } else if (clean.includes("đêm") && h === 12) {
+          h = 0;
+        }
+        const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+        if (target.getTime() <= now.getTime()) {
+          target.setDate(target.getDate() + 1); // Đặt cho ngày mai nếu mốc giờ đã qua hôm nay
+        }
+        return formatDateTime(target);
+      }
+
+      // 3. Người dùng yêu cầu hoãn rõ ràng ("lát nữa", "chút nữa", "tẹo nữa")
+      if (clean.includes("lát nữa") || clean.includes("chút nữa") || clean.includes("tẹo nữa")) {
+        now.setMinutes(now.getMinutes() + 10);
+        return formatDateTime(now);
+      }
+
+      // F-12: Tuyệt đối không âm thầm fallback 10 phút nếu không phân tích được giờ!
+      return null;
+    }
+
+    function formatDateTime(d) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    let lastTaskIdSeq = 0;
+    function generateSafeTaskId() {
+      lastTaskIdSeq = (lastTaskIdSeq + 1) % 1000;
+      // F-20: Đảm bảo không va chạm ID và an toàn với 32-bit signed int trong Java PendingIntent
+      return Math.floor((Date.now() % 1000000) * 1000 + lastTaskIdSeq);
+    }
+
+    function addLocalTask(title, scheduledTime, appToOpen = "") {
+      if (!scheduledTime) {
+        console.warn("Không thể tạo task vì không có thời gian hẹn hợp lệ:", title);
+        return null;
+      }
+      const task = {
+        id: generateSafeTaskId(),
+        title: title,
+        scheduled_time: scheduledTime,
+        app_to_open: appToOpen,
+        notified: false
+      };
+      localTasks.push(task);
+      saveTasks();
+      updateTaskListUI();
+      console.log("Đã thêm task:", task);
+
+      // Đăng ký chuông báo thức phần cứng Exact Alarm của Android (Kể cả khi tắt hẳn app)
+      try {
+        const parts = scheduledTime.split(" ");
+        const dateParts = parts[0].split("-");
+        const timeParts = parts[1].split(":");
+        const targetDate = new Date(
+          parseInt(dateParts[0]),
+          parseInt(dateParts[1]) - 1,
+          parseInt(dateParts[2]),
+          parseInt(timeParts[0]),
+          parseInt(timeParts[1]),
+          0
+        );
+        const millis = targetDate.getTime();
+        if (millis > Date.now() && window.AndroidNova && window.AndroidNova.scheduleNativeAlarm) {
+          window.AndroidNova.scheduleNativeAlarm(task.id, task.title, millis);
+          console.log("Registered Native Hardware Alarm for:", targetDate);
+        }
+      } catch(e) {
+        console.warn("Lỗi đăng ký native alarm:", e);
+      }
+      return task;
+    }
+
+    function saveTasks() {
+      localStorage.setItem("nova_tasks", JSON.stringify(localTasks));
+      document.getElementById("taskCountBadge").innerText = localTasks.filter(t => !t.notified).length;
+    }
+
+    function updateTaskListUI() {
+      const container = document.getElementById("taskItemsContainer");
+      const active = localTasks.filter(t => !t.notified);
+      document.getElementById("taskCountBadge").innerText = active.length;
+
+      if (active.length === 0) {
+        container.innerHTML = '<p class="text-slate-500 italic text-center py-2">Chưa có lịch hẹn nào. Hãy nói "Hey Nova, lên lịch..." để thêm nhé!</p>';
+        return;
+      }
+
+      // F-03: Mã hóa toàn bộ HTML (escapeHtml) ngăn chặn Stored XSS triệt để
+      container.innerHTML = active.map(t => `
+        <div class="flex justify-between items-center bg-white/5 p-2 rounded-xl border border-white/10">
+          <div>
+            <p class="font-semibold text-white">${escapeHtml(t.title)}</p>
+            <p class="text-[10px] text-sky-400">⏰ ${escapeHtml(t.scheduled_time)}</p>
+          </div>
+          <button onclick="deleteTask(${Number(t.id)})" class="text-rose-400 text-xs px-2 py-1 hover:bg-rose-500/20 rounded">✕</button>
+        </div>
+      `).join("");
+    }
+
+    function deleteTask(id) {
+      if (window.AndroidNova && window.AndroidNova.cancelNativeAlarm) {
+        window.AndroidNova.cancelNativeAlarm(id);
+      }
+      localTasks = localTasks.filter(t => t.id !== id);
+      saveTasks();
+      updateTaskListUI();
+    }
+
+    function clearAllTasks() {
+      localTasks.forEach(t => {
+        if (window.AndroidNova && window.AndroidNova.cancelNativeAlarm) {
+          window.AndroidNova.cancelNativeAlarm(t.id);
+        }
+      });
+      localTasks = [];
+      saveTasks();
+      updateTaskListUI();
+    }
+
+    // Nhận kích hoạt từ thông báo Android khi mở app từ chuông báo thức
+    window.handleNativeAlarmTrigger = function(title) {
+      console.log("Triggered from Native Alarm Notification:", title);
+      triggerProactiveAlarm({ title: title, scheduled_time: formatDateTime(new Date()) });
+    };
+
+    function toggleTaskList() {
+      document.getElementById("taskListDrawer").classList.toggle("hidden");
+      updateTaskListUI();
+    }
+
+    // 5. TIẾN TRÌNH KIỂM TRA CHUÔNG NHẮC TỰ ĐỘNG CHẠY NỀN TRÊN ĐIỆN THOẠI
+    setInterval(() => {
+      const nowStr = formatDateTime(new Date());
+      localTasks.forEach(task => {
+        if (!task.notified && task.scheduled_time <= nowStr) {
+          task.notified = true;
+          saveTasks();
+          triggerProactiveAlarm(task);
+        }
+      });
+    }, 10000);
+
+    function triggerProactiveAlarm(task) {
+      if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 500]);
+      
+      const alarmText = `Ê cậu ơi! Đến giờ làm ${task.title} rồi kìa, vào bàn làm ngay thôi nào! Cậu có muốn trò chuyện với tớ một chút không?`;
+      document.getElementById("novaBubble").innerText = `"${alarmText}"`;
+      document.getElementById("statusLabel").innerText = "Chuông nhắc việc đang reo!";
+      
+      inConversationMode = true;
+      const convBadge = document.getElementById("convBadge");
+      if (convBadge) convBadge.classList.remove("hidden");
+
+      waitingForAlarmConfirmation = true;
+      if (alarmConfirmTimeout) clearTimeout(alarmConfirmTimeout);
+      alarmConfirmTimeout = setTimeout(() => {
+        waitingForAlarmConfirmation = false;
+      }, 15000);
+
+      speakNovaResponse(alarmText, () => {
+        // Sau khi Nova nhắc xong: TỰ ĐỘNG BẬT MIC CHỜ NGƯỜI DÙNG PHẢN HỒI RẢNH TAY
+        playReadyToListenChime();
+        if (navigator.vibrate) navigator.vibrate(30);
+        document.getElementById("statusLabel").innerText = "Cậu có muốn nói chuyện không? (Đang nghe...)";
+        setTimeout(() => {
+          if (!isSpeakingNow && !isRecording) {
+            startListening();
+          }
+        }, 300);
+      }, true /* isAiResponse = true: bắt buộc đọc to bằng Native Android TTS */);
+    }
+
+    // 6. XỬ LÝ ĐÀM THOẠI 2 CHIỀU & BỘ ĐIỀU HƯỚNG TỨC THÌ (0ms)
+    function isExitPhrase(text) {
+      if (!text) return false;
+      const clean = text.toLowerCase().replace(/[\?\,\.\!\;]/g, "").trim();
+      const words = clean.split(/\s+/);
+      if (words.length > 4) return false;
+      const exactExits = [
+        "kết thúc", "thôi", "thôi nhé", "tạm biệt", "bye", "bye bye", "dừng", "dừng lại",
+        "tắt mic", "không nói nữa", "đi làm đây", "stop", "nghỉ thôi", "im lặng"
+      ];
+      return exactExits.includes(clean) || clean.startsWith("thôi không nói") || clean.startsWith("tắt mic");
+    }
+
+    function isAgreePhrase(text) {
+      if (!waitingForAlarmConfirmation) return false;
+      if (!text) return false;
+      const clean = text.toLowerCase().replace(/[\?\,\.\!\;]/g, "").trim();
+      const words = clean.split(/\s+/);
+      if (words.length > 3) return false;
+      const exactAgrees = ["có", "ừ", "uh", "ok", "oke", "okela", "có chứ", "muốn", "nói đi", "buôn đi", "được", "yes"];
+      return exactAgrees.includes(clean);
+    }
+
+    // Bộ phân tích lệnh mở ứng dụng tức thì 0ms (Bỏ qua Gemini, mở thẳng phần cứng)
+    function matchAppCommand(text) {
+      if (!text) return null;
+      let clean = text.toLowerCase().trim();
+      clean = clean.replace(/[\?\,\.\!\;]/g, "").trim();
+
+      // Chuẩn hóa phát âm và cách viết của nhận diện giọng nói
+      clean = clean.replace(/\b(you\s*tube|u\s*tube|utube)\b/gi, "youtube")
+                   .replace(/\b(tóp\s*tóp|top\s*top)\b/gi, "tiktok")
+                   .replace(/\b(fb)\b/gi, "facebook")
+                   .replace(/\b(máy\s*ảnh)\b/gi, "camera");
+
+      // 1. Chỉ đường / Bản đồ: Phải bắt đầu bằng động từ dẫn đường hoặc mở bản đồ
+      const m_maps = clean.match(/^(?:chỉ đường|dẫn đường)\s*(?:đến|về|tới|qua)?\s*(.+)$/i);
+      if (m_maps) {
+        let dest = m_maps[1].trim();
+        dest = dest.replace(/(?:giúp tớ|giúp tôi|hộ tớ|hộ tôi|nhé|nha|với|đi)$/i, "").trim();
+        return { appName: "maps", query: dest, displayName: "Bản đồ" };
+      }
+
+      const m_maps_open = clean.match(/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?(?:bản\s*đồ|google\s*maps|maps?)(?:\s+(?:đến|về|tới|tìm)?\s*(.+))?$/i);
+      if (m_maps_open) {
+        let dest = (m_maps_open[1] || "").trim();
+        dest = dest.replace(/(?:giúp tớ|giúp tôi|hộ tớ|hộ tôi|nhé|nha|với|đi)$/i, "").trim();
+        return { appName: "maps", query: dest, displayName: "Bản đồ" };
+      }
+
+      // 2. Camera / Chụp ảnh: Lệnh chụp ảnh hoặc mở camera
+      if (/^(?:chụp ảnh|chụp hình|chụp một tấm hình|tự sướng)$/i.test(clean)) {
+        return { appName: "camera", query: "", displayName: "Camera" };
+      }
+      if (/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?camera$/i.test(clean)) {
+        return { appName: "camera", query: "", displayName: "Camera" };
+      }
+
+      // 3. YouTube / Nghe nhạc: Phải bắt đầu bằng lệnh nghe/bật/mở
+      const m_yt = clean.match(/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?youtube(?:\s+(?:bài\s*hát|video|bài|nhạc)?\s*(.+))?$/i);
+      if (m_yt) {
+        let q = (m_yt[1] || "").trim();
+        q = q.replace(/(?:giúp tớ|giúp tôi|hộ tớ|hộ tôi|nhé|nha|với|đi)$/i, "").trim();
+        return { appName: "youtube", query: q, displayName: "YouTube" };
+      }
+
+      const m_music = clean.match(/^(?:nghe|bật|mở|phát)\s+(?:nhạc|bài\s*hát|bài|ca\s*khúc)(?:\s+(.+))?$/i);
+      if (m_music) {
+        let q = (m_music[1] || "").trim();
+        q = q.replace(/(?:giúp tớ|giúp tôi|hộ tớ|hộ tôi|nhé|nha|với|đi)$/i, "").trim();
+        return { appName: "youtube", query: q, displayName: "YouTube" };
+      }
+
+      // 4. Zalo
+      if (/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?zalo$/i.test(clean)) {
+        return { appName: "zalo", query: "", displayName: "Zalo" };
+      }
+
+      // 5. Facebook
+      if (/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?facebook$/i.test(clean)) {
+        return { appName: "facebook", query: "", displayName: "Facebook" };
+      }
+
+      // 6. TikTok
+      if (/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?tiktok$/i.test(clean)) {
+        return { appName: "tiktok", query: "", displayName: "TikTok" };
+      }
+
+      // 7. Messenger
+      if (/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?(?:messenger|tin nhắn|nhắn tin)$/i.test(clean)) {
+        return { appName: "messenger", query: "", displayName: "Messenger" };
+      }
+
+      // 8. Chrome / Trình duyệt
+      if (/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?(?:chrome|trình duyệt|web)$/i.test(clean)) {
+        return { appName: "chrome", query: "", displayName: "Chrome" };
+      }
+
+      // 9. Cài đặt hệ thống
+      if (/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?(?:cài đặt|settings)$/i.test(clean)) {
+        return { appName: "cài đặt", query: "", displayName: "Cài đặt" };
+      }
+
+      // 10. Báo thức / Đồng hồ
+      if (/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng\s+|app\s+)?(?:báo thức|đồng hồ|clock|alarm)$/i.test(clean)) {
+        return { appName: "báo thức", query: "", displayName: "Đồng hồ báo thức" };
+      }
+
+      // 11. Generic App: "mở/bật [app]"
+      const genMatch = clean.match(/^(?:mở|bật|vào|hãy mở|hãy bật)\s+(?:ứng\s*dụng|app)\s+([a-z0-9\s]+)$/i);
+      if (genMatch) {
+        const app = genMatch[1].trim();
+        const ignoreList = ["lịch", "nhắc", "nói", "buôn", "chuyện", "bài", "thử", "mic", "gì", "sao", "thế"];
+        const shouldIgnore = ignoreList.some(w => app.includes(w));
+        if (!shouldIgnore && app.length >= 2) {
+          return { appName: app, query: "", displayName: app };
+        }
+      }
+
+      return null;
+    }
+
+    async function sendUserUtterance(text) {
+      isProcessingUtterance = true;
+      stopListening();
+      const cleanText = text.trim();
+      const wake = detectWakeWord(cleanText);
+      const commandText = (wake && wake.matched && wake.command) ? wake.command : cleanText;
+
+      document.getElementById("userBubble").classList.remove("hidden");
+      document.getElementById("userBubble").innerText = `"${cleanText}"`;
+
+      // 1. Kiểm tra từ khóa KẾT THÚC
+      if (isExitPhrase(commandText) || isExitPhrase(cleanText)) {
+        inConversationMode = false;
+        waitingForAlarmConfirmation = false;
+        // KHÔNG xóa conversationHistory để Nova luôn ghi nhớ câu chuyện và lời dặn của người dùng
+        document.getElementById("convBadge").classList.add("hidden");
+        const exitReply = "Okela, cậu tập trung làm việc nha! Tớ tắt mic đây, khi nào cần cứ gọi Hey Nova nhé!";
+        document.getElementById("novaBubble").innerText = `"${exitReply}"`;
+        speakNovaResponse(exitReply, () => {
+          isProcessingUtterance = false;
+          document.getElementById("statusLabel").innerText = "Sẵn sàng lắng nghe";
+        });
+        return;
+      }
+
+      // 1.1 Kiểm tra lệnh chủ động xóa bộ nhớ
+      if (/^(?:xóa bộ nhớ|quên hết đi|xóa lịch sử|quên câu chuyện)$/i.test(commandText)) {
+        conversationHistory = [];
+        saveConversation();
+        const clearReply = "Tớ đã xóa sạch bộ nhớ trò chuyện cũ rồi nè! Cậu có câu chuyện hay điều gì mới muốn kể cho tớ không?";
+        document.getElementById("novaBubble").innerText = `"${clearReply}"`;
+        speakNovaResponse(clearReply, () => {
+          isProcessingUtterance = false;
+          document.getElementById("statusLabel").innerText = "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+        });
+        return;
+      }
+
+      // 2. Kiểm tra người dùng đồng ý nói chuyện sau chuông báo thức (CHỈ KHI CHUÔNG ĐANG HỎI)
+      if (waitingForAlarmConfirmation && (isAgreePhrase(commandText) || isAgreePhrase(cleanText))) {
+        waitingForAlarmConfirmation = false;
+        inConversationMode = true;
+        document.getElementById("convBadge").classList.remove("hidden");
+        const welcomeReply = "Okela, buôn chuyện tí nào! Cậu đang cảm thấy thế nào rồi?";
+        document.getElementById("novaBubble").innerText = `"${welcomeReply}"`;
+        speakNovaResponse(welcomeReply, () => {
+          isProcessingUtterance = false;
+          document.getElementById("statusLabel").innerText = "Đang nghe bạn nói... (Nói 'kết thúc' để dừng)";
+          setTimeout(() => { if (inConversationMode && !isSpeakingNow) startListening(); }, 200);
+        });
+        return;
+      }
+      // Người dùng trả lời câu khác khi có chuông -> xóa cờ chờ phản hồi chuông
+      waitingForAlarmConfirmation = false;
+
+      // 3. BỘ ĐIỀU HƯỚNG MỞ ỨNG DỤNG TỨC THÌ (0ms - KHÔNG CHỜ GEMINI, KHÔNG TREO MÁY)
+      const appMatch = matchAppCommand(commandText) || matchAppCommand(cleanText);
+      if (appMatch) {
+        console.log("0ms App Command Match:", appMatch);
+        let opened = false;
+        if (window.AndroidNova && window.AndroidNova.openApp) {
+          opened = window.AndroidNova.openApp(appMatch.appName, appMatch.query);
+        }
+
+        let replyText = "";
+        if (opened) {
+          if (appMatch.query) {
+            replyText = `Okela! Đang mở ${appMatch.displayName} bài hát ${appMatch.query} cho cậu ngay đây!`;
+          } else {
+            replyText = `Okela! Đang mở ${appMatch.displayName} cho cậu ngay đây!`;
+          }
+        } else {
+          replyText = `Tớ chưa tìm thấy ứng dụng ${appMatch.displayName} trên máy của cậu. Cậu kiểm tra lại xem đã cài đặt chưa nhé!`;
+        }
+
+        let appTextShown = false;
+        const revealAppText = () => {
+          if (!appTextShown) {
+            appTextShown = true;
+            document.getElementById("novaBubble").innerText = `"${replyText}"`;
+          }
+        };
+
+        const hasDynamicQuery = !!(appMatch.query && appMatch.query.length >= 2);
+        speakNovaResponse(replyText, () => {
+          revealAppText();
+          isProcessingUtterance = false;
+          document.getElementById("statusLabel").innerText = "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+        }, hasDynamicQuery, revealAppText);
+        return;
+      }
+
+      // 4. Nếu không phải lệnh mở app, gửi câu hỏi trò chuyện tới Gemini
+      document.getElementById("novaBubble").innerHTML = '<span class="inline-flex items-center gap-1.5 text-sky-400 font-medium"><svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> Nova đang suy nghĩ...</span>';
+      try {
+        const result = await callGeminiDirect(commandText || cleanText);
+
+        // R08: Đồng bộ nhắc việc/báo thức sang phần cứng Android nếu backend hoặc Gemini sinh action đặt lịch
+        if (result && result.action && (result.action.action === "schedule_tasks" || result.action.action === "schedule_task")) {
+          const tasks = result.action.tasks || (result.action.task ? [result.action.task] : []);
+          for (const t of tasks) {
+            const timeStr = parseNaturalTime(t.scheduled_time || t.time);
+            if (timeStr) {
+              addLocalTask(t.title || "Nhắc việc", timeStr, t.app_to_open || "");
+            }
+          }
+        }
+
+        let aiTextShown = false;
+        const revealAiText = () => {
+          if (!aiTextShown) {
+            aiTextShown = true;
+            document.getElementById("novaBubble").innerText = `"${result.reply}"`;
+          }
+        };
+
+        // BẮT BUỘC ĐỌC ĐÚNG 100% TỪNG CHỮ CỦA result.reply (isAiResponse = true)
+        speakNovaResponse(result.reply, () => {
+          revealAiText();
+          isProcessingUtterance = false;
+          // NẾU ĐANG TRONG PHIÊN ĐÀM THOẠI LIÊN TỤC: Tự động mở mic cho lượt nói tiếp (ChatGPT Voice / Gemini Live)
+          if (inConversationMode) {
+            playReadyToListenChime();
+            if (navigator.vibrate) navigator.vibrate(30);
+            document.getElementById("statusLabel").innerText = "Đang lắng nghe cậu nói tiếp... (Nói 'kết thúc' để dừng)";
+            setTimeout(() => {
+              if (inConversationMode && !isSpeakingNow && !isRecording) {
+                startListening();
+              }
+            }, 300);
+          } else {
+            document.getElementById("statusLabel").innerText = "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+          }
+        }, true /* isAiResponse = true */, revealAiText);
+      } catch (err) {
+        console.error("Lỗi:", err);
+        const errText = err.code === "model_unavailable" ?
+          "Mô hình AI hiện không khả dụng. Cậu kiểm tra cấu hình máy chủ giúp tớ nhé!" :
+          err.code === "api_key_invalid" || err.code === "missing_api_key" ?
+          "Nova chưa xác thực được với dịch vụ AI. Cậu kiểm tra khóa trên máy chủ nhé!" :
+          err.code === "quota_exceeded" ?
+          "Dịch vụ AI đang giới hạn lượt dùng. Cậu thử lại sau nhé!" :
+          err.code === "server_error" || err.code === "upstream_bad_response" ?
+          "Máy chủ Nova đang gặp lỗi. Cậu thử lại sau một chút nhé!" :
+          "Tớ nghe thấy cậu rồi, nhưng kết nối tới AI đang gián đoạn. Cậu thử lại nhé!";
+        document.getElementById("novaBubble").innerText = `"${errText}"`;
+        speakNovaResponse(errText, () => {
+          isProcessingUtterance = false;
+          if (inConversationMode) {
+            document.getElementById("statusLabel").innerText = "Đang lắng nghe cậu nói tiếp...";
+            setTimeout(() => {
+              if (inConversationMode && !isSpeakingNow && !isRecording) startListening();
+            }, 300);
+          } else {
+            document.getElementById("statusLabel").innerText = "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+          }
+        });
+      }
+    }
+
+    // 7. TEST CHUÔNG 5S
+    function startProactiveTest(seconds) {
+      let remaining = seconds;
+      const badge = document.getElementById("countdownBadge");
+      const btn = document.getElementById("btnTest5s");
+      badge.classList.remove("hidden");
+      badge.innerText = `00:0${remaining}s`;
+      btn.disabled = true;
+      btn.classList.add("opacity-50");
+
+      if (countdownTimer) clearInterval(countdownTimer);
+
+      countdownTimer = setInterval(() => {
+        remaining--;
+        badge.innerText = `00:0${remaining}s`;
+        if (remaining <= 0) {
+          clearInterval(countdownTimer);
+          badge.classList.add("hidden");
+          btn.disabled = false;
+          btn.classList.remove("opacity-50");
+
+          // Kích hoạt chuông nhắc việc giả lập
+          triggerProactiveAlarm({ title: "Học bài & Làm đồ án", scheduled_time: formatDateTime(new Date()) });
+        }
+      }, 1000);
+    }
+
+    // 8. ĐIỀU KHIỂN QUẢ CẦU MIC & CHẾ ĐỘ WAKE WORD
+    function handleOrbClick() {
+      // 1. Nếu Nova đang nói, chạm để ngắt lời ngay lập tức (Interrupt capability)
+      if (isSpeakingNow) {
+        if (window.AndroidNova && window.AndroidNova.stopAudio) {
+          try { window.AndroidNova.stopAudio(); } catch(e){}
+        } else if (window.AndroidNova && window.AndroidNova.stop) {
+          try { window.AndroidNova.stop(); } catch(e){}
+        }
+        if (currentTTSAudio) {
+          try { currentTTSAudio.pause(); } catch(e){}
+          currentTTSAudio = null;
+        }
+        if (window.speechSynthesis) {
+          try { window.speechSynthesis.cancel(); } catch(e){}
+        }
+        if (window._nativeTTSSafetyTimer) {
+          clearTimeout(window._nativeTTSSafetyTimer);
+          window._nativeTTSSafetyTimer = null;
+        }
+        window._nativeTTSFinishedCallback = null;
+        window.onNovaSpeechStarted = null;
+        window.onNativeAudioFailed = null;
+        isSpeakingNow = false;
+        isProcessingUtterance = false; // R01: Mở khóa trạng thái xử lý để lượt nói tiếp theo hoạt động tức thì
+        const orb = document.getElementById("orbContainer");
+        const wave = document.getElementById("waveBox");
+        if (orb) orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+        if (wave) wave.classList.remove("wave-active");
+        document.getElementById("statusLabel").innerText = "Đã ngắt lời Nova. Chạm quả cầu để nói chuyện tiếp!";
+        return;
+      }
+
+      // 2. Nếu mic đang mở và đã có câu người dùng nói: Gửi ngay lập tức!
+      if (isRecording) {
+        if (accumulatedSpeech || currentRecognizedText) {
+          finalizeAndSubmitUtterance();
+          return;
+        }
+        // Chưa có chữ gì thì tắt mic
+        inConversationMode = false;
+        const convBadge = document.getElementById("convBadge");
+        if (convBadge) convBadge.classList.add("hidden");
+        stopListening();
+        document.getElementById("statusLabel").innerText = "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+        return;
+      }
+
+      // 3. Nếu đang nghỉ, chạm để bắt đầu nghe
+      inConversationMode = true;
+      const convBadge = document.getElementById("convBadge");
+      if (convBadge) convBadge.classList.remove("hidden");
+      startListening();
+    }
+
+    function setListeningVisual(isListening, isWakeOnly = false) {
+      const orb = document.getElementById("orbContainer");
+      const dot = document.getElementById("statusDot");
+      if (!orb || orb.classList.contains("speaking-orb")) return;
+
+      if (isListening) {
+        if (isWakeOnly) {
+          orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+          if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+          document.getElementById("statusLabel").innerText = 'Sẵn sàng gọi "Hey Nova" / "Nova ơi"';
+        } else {
+          orb.className = "w-36 h-36 rounded-full listening-orb cursor-pointer transition-all duration-300 flex items-center justify-center relative shadow-2xl";
+          if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-ping";
+          document.getElementById("statusLabel").innerText = inConversationMode 
+            ? "Đang lắng nghe cậu nói... (Nói 'kết thúc' để dừng)" 
+            : "Đang lắng nghe cậu nói...";
+        }
+      } else {
+        orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-slate-500";
+        if (!isSpeakingNow && !isProcessingUtterance) {
+          document.getElementById("statusLabel").innerText = inConversationMode 
+            ? "Nova đang chờ... Chạm quả cầu để nói tiếp" 
+            : (wakeWordEnabled ? 'Sẵn sàng gọi "Hey Nova"' : 'Chạm quả cầu 🔮 hoặc mic 🎙️ để nói');
+        }
+      }
+    }
+
+    // Thiết lập chế độ Push-To-Talk (Giữ để nói không giới hạn thời gian)
+    function setupPushToTalk() {
+      const pttBtn = document.getElementById("btnPushToTalk");
+      if (!pttBtn) return;
+
+      const onPttStart = (e) => {
+        if (e.type === "touchstart") e.preventDefault();
+        if (isSpeakingNow) {
+          handleOrbClick(); // ngắt lời nếu Nova đang nói
+        }
+        isPushToTalk = true;
+        if (speechPauseTimer) {
+          clearTimeout(speechPauseTimer);
+          speechPauseTimer = null;
+        }
+        pttBtn.classList.remove("bg-indigo-600/70");
+        pttBtn.classList.add("bg-rose-600", "scale-105");
+        pttBtn.innerHTML = '<span>🔴 Đang thu âm... Thả ra để gửi ngay!</span>';
+        if (navigator.vibrate) navigator.vibrate(35);
+        startListening();
+        document.getElementById("statusLabel").innerText = "Đang giữ mic... Cứ nói thong thả, thả tay là gửi ngay!";
+      };
+
+      const onPttEnd = (e) => {
+        if (e.type === "touchend") e.preventDefault();
+        if (!isPushToTalk) return;
+        isPushToTalk = false;
+        pttBtn.classList.remove("bg-rose-600", "scale-105");
+        pttBtn.classList.add("bg-indigo-600/70");
+        pttBtn.innerHTML = '<span>🎙️ Giữ để nói (Không ngắt)</span>';
+        if (navigator.vibrate) navigator.vibrate(25);
+        finalizeAndSubmitUtterance();
+      };
+
+      pttBtn.addEventListener("touchstart", onPttStart, { passive: false });
+      pttBtn.addEventListener("touchend", onPttEnd, { passive: false });
+      pttBtn.addEventListener("touchcancel", onPttEnd, { passive: false });
+      pttBtn.addEventListener("mousedown", onPttStart);
+      pttBtn.addEventListener("mouseup", onPttEnd);
+      pttBtn.addEventListener("mouseleave", () => {
+        if (isPushToTalk) onPttEnd({ type: "mouseleave" });
+      });
+    }
+
+    function startListening() {
+      if (isSpeakingNow || isProcessingUtterance) return;
+      if (isRecording) return;
+
+      inConversationMode = true;
+      const convBadge = document.getElementById("convBadge");
+      if (convBadge) convBadge.classList.remove("hidden");
+
+      accumulatedSpeech = "";
+      currentRecognizedText = "";
+      finalTranscriptSoFar = "";
+      unlockAudioContext();
+      if (speechPauseTimer) {
+        clearTimeout(speechPauseTimer);
+        speechPauseTimer = null;
+      }
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+      showInstantSendButton(false);
+
+      isRecording = true;
+      setListeningVisual(true, false);
+
+      if (hasNativeSpeech()) {
+        console.log("Using Android Native Speech Recognizer...");
+        try {
+          window.AndroidNova.startNativeSpeech();
+        } catch(err) {
+          console.warn("Error calling startNativeSpeech:", err);
+          isRecording = false;
+          setListeningVisual(false);
+        }
+      } else if (recognition) {
+        try {
+          recognition.start();
+        } catch (e) {
+          console.warn("Lỗi start recognition:", e);
+          isRecording = false;
+          setListeningVisual(false);
+        }
+      } else {
+        isRecording = false;
+        setListeningVisual(false);
+        alert("Trình duyệt không hỗ trợ nhận diện giọng nói. Hãy dùng Google Chrome hoặc app Nova trên Android!");
+      }
+    }
+
+
+    function startWakeListening() {
+      if (isSpeakingNow || isProcessingUtterance || inConversationMode) return;
+      if (isRecording) return;
+      currentRecognizedText = "";
+      finalTranscriptSoFar = "";
+      isRecording = true;
+      setListeningVisual(true, true);
+
+      if (hasNativeSpeech()) {
+        try {
+          window.AndroidNova.startNativeSpeech();
+        } catch(e) {
+          isRecording = false;
+          setListeningVisual(false);
+        }
+      } else if (recognition) {
+        try {
+          recognition.start();
+        } catch (e) {
+          isRecording = false;
+          setListeningVisual(false);
+        }
+      }
+    }
+
+    function toggleWakeWord() {
+      wakeWordEnabled = !wakeWordEnabled;
+      const badge = document.getElementById("wakeBadge");
+      const dot = document.getElementById("wakeDot");
+      const txt = document.getElementById("wakeStatusText");
+      if (wakeWordEnabled) {
+        badge.className = "px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition active:scale-95";
+        dot.className = "w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse";
+        txt.innerText = '"Hey Nova": BẬT';
+        startWakeListening();
+      } else {
+        badge.className = "px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition active:scale-95";
+        dot.className = "w-1.5 h-1.5 rounded-full bg-slate-500";
+        txt.innerText = '"Hey Nova": TẮT';
+        stopListening();
+        document.getElementById("statusLabel").innerText = 'Đã tắt nhận diện "Hey Nova"';
+      }
+    }
+
+    function stopListening() {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      isRecording = false;
+      if (hasNativeSpeech()) {
+        try { window.AndroidNova.stopNativeSpeech(); } catch(e){}
+      }
+      if (recognition) {
+        try { recognition.stop(); } catch(e){}
+      }
+      stopListeningVisual();
+    }
+
+    function stopListeningVisual() {
+      isRecording = false;
+      setListeningVisual(false);
+    }
+
+    function handleGoogleVoicePrompt() {
+      // Đã loại bỏ hoàn toàn cơ chế Fallback Google Voice Dialog popup.
+      handleOrbClick();
+    }
+
+    function handleSendText() {
+      const input = document.getElementById("textInput");
+      const val = input.value.trim();
+      if (val) {
+        sendUserUtterance(val);
+        input.value = "";
+      }
+    }
+
+    document.getElementById("textInput").addEventListener("keypress", (e) => {
+      if (e.key === "Enter") handleSendText();
+    });
+
+    function toggleHelpModal() {
+      const modal = document.getElementById("helpModal");
+      if (modal) modal.classList.toggle("hidden");
+    }
+
+    function playCuppyDirectAudio(callback) {
+      isSpeakingNow = true;
+      stopListening();
+      const orb = document.getElementById("orbContainer");
+      const wave = document.getElementById("waveBox");
+      orb.className = "w-36 h-36 rounded-full speaking-orb cursor-pointer transition-all duration-300 flex items-center justify-center relative shadow-2xl";
+      wave.classList.add("wave-active");
+
+      const audio = new Audio("assets/cuppy-vi.wav");
+      let finished = false;
+      const done = () => {
+        if (finished) return;
+        finished = true;
+        isSpeakingNow = false;
+        orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+        wave.classList.remove("wave-active");
+        if (callback) callback();
+      };
+
+      audio.onended = done;
+      audio.onerror = () => {
+        const fb = new Audio("assets/audit_saydi-cuppy-vi.mp3");
+        fb.onended = done;
+        fb.onerror = done;
+        fb.play().catch(done);
+      };
+      audio.play().catch(done);
+    }
+
+    // =========================================================================
+    // 9. KÍCH HOẠT TỰ ĐỘNG KHI ĐƯỢC GỌI LÀ TRỢ LÝ (DEFAULT ASSISTANT / ROUTINE)
+    // =========================================================================
+    window.triggerAutoAssistant = function() {
+      console.log("=== NOVA ASSISTANT LAUNCH TRIGGERED ===");
+      unlockAudioContext();
+      playAcknowledgeChime();
+      if (navigator.vibrate) navigator.vibrate([40, 50, 40]);
+
+      inConversationMode = true;
+      const convBadge = document.getElementById("convBadge");
+      if (convBadge) convBadge.classList.remove("hidden");
+
+      const greeting = "Tớ là Nova đây, tớ đang lắng nghe cậu nè!";
+      const novaBubble = document.getElementById("novaBubble");
+      if (novaBubble) novaBubble.innerText = `"${greeting}"`;
+      document.getElementById("statusLabel").innerText = "Đang mở mic lắng nghe...";
+
+      // Phát trực tiếp giọng Cuppy gốc "Tớ là Nova đây, tớ đang lắng nghe cậu nè!"
+      speakNovaResponse(greeting, () => {
+        startListening();
+      });
+    };
+
+    window.startListening = startListening;
+    window.stopListening = stopListening;
+
+    // 10. MỞ THẲNG MÀN HÌNH CÀI ĐẶT TRỢ LÝ CỦA HỆ ĐIỀU HÀNH ANDROID
+    function handleOpenAssistantSettings() {
+      if (window.AndroidNova && window.AndroidNova.openAssistantSettings) {
+        window.AndroidNova.openAssistantSettings();
+      } else {
+        toggleHelpModal();
+      }
+    }
+
+    // 11. BỘ TÙY BIẾN TÔNG GIỌNG BẠN THÂN NOVA
+    function changeVoiceTone(type) {
+      let pitch = 1.25;
+      let rate = 1.08;
+      let label = "🌸 Bạn Thân Tươi Tắn";
+      let sampleText = "Tớ là Nova đây! Cậu nghe tông giọng này của tớ thấy thế nào?";
+
+      if (type === "sweet") {
+        pitch = 1.15;
+        rate = 1.0;
+        label = "🌼 Ngọt Ngào Dịu Dàng";
+        sampleText = "Dạ, tớ luôn ở đây để đồng hành và hỗ trợ cậu mỗi ngày nhé!";
+      } else if (type === "energetic") {
+        pitch = 1.35;
+        rate = 1.15;
+        label = "⚡ Nhanh Nhẹn Quyết Đoán";
+        sampleText = "Sẵn sàng làm việc hết mình chưa nào? Bắt tay vào làm ngay thôi cậu ơi!";
+      } else if (type === "calm") {
+        pitch = 1.05;
+        rate = 1.0;
+        label = "☕ Trầm Ấm Thư Thái";
+        sampleText = "Cậu hãy thả lỏng một chút, uống ngụm nước rồi cùng tớ tiếp tục nhé.";
+      }
+
+      document.getElementById("currentVoiceLabel").innerText = label;
+      localStorage.setItem("nova_voice_type", type);
+
+      if (window.AndroidNova && window.AndroidNova.setVoiceTune) {
+        window.AndroidNova.setVoiceTune(pitch, rate);
+      }
+
+      document.getElementById("novaBubble").innerText = `"${sampleText}"`;
+      speakNovaResponse(sampleText, null);
+    }
+
+    // Khôi phục tông giọng người dùng đã chọn khi mở app
+    try {
+      const savedType = localStorage.getItem("nova_voice_type") || "cheerful";
+      const sel = document.getElementById("voiceToneSelect");
+      if (sel) sel.value = savedType;
+      let initPitch = 1.25, initRate = 1.08;
+      let initLabel = "🌸 Bạn Thân Tươi Tắn";
+      if (savedType === "sweet") { initPitch = 1.15; initRate = 1.0; initLabel = "🌼 Ngọt Ngào Dịu Dàng"; }
+      else if (savedType === "energetic") { initPitch = 1.35; initRate = 1.15; initLabel = "⚡ Nhanh Nhẹn Quyết Đoán"; }
+      else if (savedType === "calm") { initPitch = 1.05; initRate = 1.0; initLabel = "☕ Trầm Ấm Thư Thái"; }
+      document.getElementById("currentVoiceLabel").innerText = initLabel;
+      setTimeout(() => {
+        if (window.AndroidNova && window.AndroidNova.setVoiceTune) {
+          window.AndroidNova.setVoiceTune(initPitch, initRate);
+        }
+      }, 500);
+    } catch(e) {}
+
+    // Mở khóa AudioContext khi người dùng chạm màn hình lần đầu tiên
+    document.addEventListener("click", () => {
+      unlockAudioContext();
+    }, { once: true });
+
+    // 11. XỬ LÝ CẤU HÌNH MÁY CHỦ & KẾT NỐI (SERVER CONFIG MODAL)
+    function openServerConfigModal() {
+      const modal = document.getElementById("serverConfigModal");
+      const inputUrl = document.getElementById("inputServerUrl");
+      const inputKey = document.getElementById("inputGeminiKey");
+      inputUrl.value = getApiBaseUrl();
+      inputKey.value = localStorage.getItem("nova_user_gemini_key") || "";
+      document.getElementById("pingStatus").classList.add("hidden");
+      modal.classList.remove("hidden");
+    }
+
+    function closeServerConfigModal() {
+      document.getElementById("serverConfigModal").classList.add("hidden");
+    }
+
+    function setQuickServerUrl(type) {
+      const inputUrl = document.getElementById("inputServerUrl");
+      if (type === 'tunnel') {
+        inputUrl.value = DEFAULT_TUNNEL_URL || "";
+        if (!inputUrl.value) {
+          inputUrl.placeholder = "Dán URL Tunnel đang hoạt động tại đây";
+          inputUrl.focus();
+        }
+      } else if (type === 'local') {
+        inputUrl.value = DEFAULT_LOCAL_URL;
+      }
+    }
+
+    async function testServerConnection() {
+      const inputUrl = document.getElementById("inputServerUrl");
+      const statusDiv = document.getElementById("pingStatus");
+      const targetUrl = (inputUrl.value || "").trim().replace(/\/+$/, "");
+      if (!targetUrl) {
+        statusDiv.className = "text-xs p-2 rounded-xl border bg-amber-500/10 border-amber-500/30 text-amber-300";
+        statusDiv.innerText = "Vui lòng nhập địa chỉ máy chủ để kiểm tra.";
+        statusDiv.classList.remove("hidden");
+        return;
+      }
+      statusDiv.className = "text-xs p-2 rounded-xl border bg-sky-500/10 border-sky-500/30 text-sky-300";
+      statusDiv.innerText = "Đang kiểm tra kết nối tới máy chủ...";
+      statusDiv.classList.remove("hidden");
+      const t0 = Date.now();
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(`${targetUrl}/health`, { signal: controller.signal });
+        clearTimeout(tid);
+        const elapsed = Date.now() - t0;
+        if (res.ok) {
+          statusDiv.className = "text-xs p-2 rounded-xl border bg-emerald-500/10 border-emerald-500/30 text-emerald-300";
+          statusDiv.innerText = `🟢 Kết nối máy chủ thành công! (${elapsed}ms)`;
+        } else {
+          statusDiv.className = "text-xs p-2 rounded-xl border bg-amber-500/10 border-amber-500/30 text-amber-300";
+          statusDiv.innerText = `⚠️ Máy chủ phản hồi mã lỗi: ${res.status}`;
+        }
+      } catch (err) {
+        statusDiv.className = "text-xs p-2 rounded-xl border bg-rose-500/10 border-rose-500/30 text-rose-300";
+        statusDiv.innerText = `🔴 Không thể kết nối tới ${targetUrl}. Hãy kiểm tra máy tính đã bật server chưa.`;
+      }
+    }
+
+    function saveServerConfig() {
+      const inputUrl = document.getElementById("inputServerUrl");
+      const inputKey = document.getElementById("inputGeminiKey");
+      const targetUrl = (inputUrl.value || "").trim().replace(/\/+$/, "");
+      const targetKey = (inputKey.value || "").trim();
+
+      if (targetUrl) {
+        localStorage.setItem("nova_backend_url", targetUrl);
+        if (window.AndroidNova && typeof window.AndroidNova.setServerBaseUrl === 'function') {
+          try { window.AndroidNova.setServerBaseUrl(targetUrl); } catch(e){}
+        }
+      }
+      if (targetKey) {
+        localStorage.setItem("nova_user_gemini_key", targetKey);
+        GEMINI_API_KEY = targetKey;
+      } else {
+        localStorage.removeItem("nova_user_gemini_key");
+        GEMINI_API_KEY = "";
+      }
+      closeServerConfigModal();
+      document.getElementById("statusLabel").innerText = "Đã cập nhật máy chủ kết nối!";
+      setTimeout(() => {
+        document.getElementById("statusLabel").innerText = "Chạm quả cầu 🔮 hoặc mic 🎙️ để nói";
+      }, 3000);
+    }
+
+    // Khởi tạo hiển thị task & nút Giữ để nói
+    updateTaskListUI();
+    setupPushToTalk();
+  </script>
+</body>
+</html>

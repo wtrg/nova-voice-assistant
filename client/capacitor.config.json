@@ -1,0 +1,9 @@
+{
+  "appId": "com.nova.assistant",
+  "appName": "Nova AI",
+  "webDir": "www",
+  "server": {
+    "cleartext": true,
+    "allowNavigation": ["localhost", "*.trycloudflare.com"]
+  }
+}
