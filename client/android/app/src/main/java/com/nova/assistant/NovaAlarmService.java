@@ -20,6 +20,8 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.util.Log;
 import androidx.core.app.NotificationCompat;
+import com.nova.assistant.reminder.ReminderId;
+import java.util.UUID;
 
 public class NovaAlarmService extends Service {
     private static final String TAG = "NovaAlarmService";
@@ -29,10 +31,22 @@ public class NovaAlarmService extends Service {
     public static final String ACTION_START_ALARM = "com.nova.assistant.action.START_ALARM";
     public static final String ACTION_STOP_ALARM = "com.nova.assistant.action.STOP_ALARM";
     public static final String ACTION_SNOOZE_ALARM = "com.nova.assistant.action.SNOOZE_ALARM";
+    public static final String ACTION_CLAIM_ALARM = "com.nova.assistant.action.CLAIM_ALARM";
+
+    public enum SessionState {
+        IDLE,
+        RINGING_NATIVE,
+        WAITING_WEBVIEW,
+        HANDOFF_COMPLETE,
+        STOPPED
+    }
 
     public static volatile boolean isAlarmRinging = false;
+    public static volatile String currentSessionId = "";
+    public static volatile SessionState currentState = SessionState.IDLE;
 
     private MediaPlayer mediaPlayer = null;
+    private Ringtone fallbackRingtone = null;
     private PowerManager.WakeLock wakeLock = null;
 
     public static void stopAlarm(Context context) {
@@ -43,6 +57,21 @@ public class NovaAlarmService extends Service {
         } catch (Exception e) {
             Log.e(TAG, "Error requesting stopAlarm", e);
         }
+    }
+
+    public static boolean claimAlarm(Context context, String sessionId) {
+        if (sessionId != null && !sessionId.isEmpty() && currentSessionId.equals(sessionId) && isAlarmRinging) {
+            try {
+                Intent intent = new Intent(context, NovaAlarmService.class);
+                intent.setAction(ACTION_CLAIM_ALARM);
+                intent.putExtra("session_id", sessionId);
+                context.startService(intent);
+                return true;
+            } catch (Exception e) {
+                Log.e(TAG, "Error claiming alarm session", e);
+            }
+        }
+        return false;
     }
 
     @Override
@@ -59,40 +88,67 @@ public class NovaAlarmService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) {
-            stopSelf();
+            finishAlarmSession();
             return START_NOT_STICKY;
         }
 
         String action = intent.getAction();
         if (ACTION_STOP_ALARM.equals(action)) {
-            stopAlarmPlayback();
-            stopForeground(true);
-            stopSelf();
+            currentState = SessionState.STOPPED;
+            finishAlarmSession();
+            return START_NOT_STICKY;
+        }
+
+        if (ACTION_CLAIM_ALARM.equals(action)) {
+            String incomingSessionId = intent.getStringExtra("session_id");
+            if (currentSessionId.equals(incomingSessionId)) {
+                Log.i(TAG, "Alarm session successfully claimed by WebView: " + incomingSessionId);
+                currentState = SessionState.HANDOFF_COMPLETE;
+                finishAlarmSession();
+            }
             return START_NOT_STICKY;
         }
 
         if (ACTION_SNOOZE_ALARM.equals(action)) {
             int taskId = intent.getIntExtra("task_id", 0);
+            String reminderId = intent.getStringExtra("reminder_id");
             String taskTitle = intent.getStringExtra("task_title");
             if (taskTitle == null || taskTitle.isEmpty()) taskTitle = "Nhắc nhở";
 
             long snoozeTime = System.currentTimeMillis() + 5 * 60 * 1000;
-            MainActivity.scheduleAlarmDirect(this, taskId > 0 ? taskId : (int) (System.currentTimeMillis() % 1000000), taskTitle + " (báo lại)", snoozeTime);
+            if (reminderId != null && !reminderId.isEmpty()) {
+                MainActivity.scheduleAlarmDirect(this, reminderId, taskTitle + " (báo lại)", snoozeTime);
+            } else {
+                MainActivity.scheduleAlarmDirect(this, taskId > 0 ? taskId : (int) (System.currentTimeMillis() % 1000000), taskTitle + " (báo lại)", snoozeTime);
+            }
 
-            stopAlarmPlayback();
-            stopForeground(true);
-            stopSelf();
+            currentState = SessionState.STOPPED;
+            finishAlarmSession();
             return START_NOT_STICKY;
         }
 
+        // Mặc định hoặc ACTION_START_ALARM:
+        String reminderId = intent.getStringExtra("reminder_id");
         String taskTitle = intent.getStringExtra("task_title");
         if (taskTitle == null || taskTitle.isEmpty()) {
             taskTitle = "Làm việc & Học tập";
         }
-        int taskId = intent.getIntExtra("task_id", (int) (System.currentTimeMillis() % 1000000));
+        int taskId = intent.getIntExtra("task_id", (reminderId != null ? ReminderId.toRequestCode(reminderId) : (int) (System.currentTimeMillis() % 1000000)));
 
+        currentSessionId = UUID.randomUUID().toString();
+        currentState = SessionState.RINGING_NATIVE;
+
+        // V2 Correct Lifecycle Order:
+        // 1. Dọn dẹp phiên trước
+        releaseMediaPlayer();
+        stopFallbackRingtone();
+        // 2. Chiếm giữ WakeLock
         acquireWakeLock();
-        startForegroundWithNotification(taskId, taskTitle);
+        // 3. Khởi chạy Foreground Service Notification
+        startForegroundWithNotification(taskId, reminderId, taskTitle, currentSessionId);
+        // 4. Bật cờ chuông đang reo
+        isAlarmRinging = true;
+        // 5. Bắt đầu phát âm thanh chuông
         startAlarmAudio();
 
         return START_STICKY;
@@ -116,11 +172,15 @@ public class NovaAlarmService extends Service {
         }
     }
 
-    private void startForegroundWithNotification(int taskId, String taskTitle) {
+    private void startForegroundWithNotification(int taskId, String reminderId, String taskTitle, String sessionId) {
         Intent openAppIntent = new Intent(this, MainActivity.class);
         openAppIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         openAppIntent.putExtra("auto_alarm", true);
         openAppIntent.putExtra("task_title", taskTitle);
+        openAppIntent.putExtra("alarm_session_id", sessionId);
+        if (reminderId != null) {
+            openAppIntent.putExtra("reminder_id", reminderId);
+        }
         PendingIntent openPendingIntent = PendingIntent.getActivity(
             this,
             taskId,
@@ -140,6 +200,9 @@ public class NovaAlarmService extends Service {
         Intent snoozeIntent = new Intent(this, NovaAlarmService.class);
         snoozeIntent.setAction(ACTION_SNOOZE_ALARM);
         snoozeIntent.putExtra("task_id", taskId);
+        if (reminderId != null) {
+            snoozeIntent.putExtra("reminder_id", reminderId);
+        }
         snoozeIntent.putExtra("task_title", taskTitle);
         PendingIntent snoozePendingIntent = PendingIntent.getService(
             this,
@@ -173,9 +236,7 @@ public class NovaAlarmService extends Service {
     }
 
     private void startAlarmAudio() {
-        isAlarmRinging = true;
         try {
-            stopAlarmPlayback();
             mediaPlayer = new MediaPlayer();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 mediaPlayer.setAudioAttributes(
@@ -198,7 +259,14 @@ public class NovaAlarmService extends Service {
             mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
                 @Override
                 public void onCompletion(MediaPlayer mp) {
-                    stopAlarmPlayback();
+                    finishAlarmSession();
+                }
+            });
+            mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                @Override
+                public boolean onError(MediaPlayer mp, int what, int extra) {
+                    finishAlarmSession();
+                    return true;
                 }
             });
             mediaPlayer.start();
@@ -207,8 +275,18 @@ public class NovaAlarmService extends Service {
             try {
                 Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
                 if (soundUri == null) soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                Ringtone r = RingtoneManager.getRingtone(this, soundUri);
-                if (r != null) r.play();
+                fallbackRingtone = RingtoneManager.getRingtone(this, soundUri);
+                if (fallbackRingtone != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        fallbackRingtone.setAudioAttributes(
+                            new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_ALARM)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build()
+                        );
+                    }
+                    fallbackRingtone.play();
+                }
             } catch (Exception ignored) {}
         }
     }
@@ -230,8 +308,15 @@ public class NovaAlarmService extends Service {
         } catch (Exception ignored) {}
     }
 
-    private void stopAlarmPlayback() {
-        isAlarmRinging = false;
+    private void releaseWakeLock() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void releaseMediaPlayer() {
         try {
             if (mediaPlayer != null) {
                 if (mediaPlayer.isPlaying()) {
@@ -242,17 +327,38 @@ public class NovaAlarmService extends Service {
             }
         } catch (Exception e) {
             Log.e(TAG, "Error stopping mediaPlayer", e);
+            mediaPlayer = null;
         }
+    }
+
+    private void stopFallbackRingtone() {
         try {
-            if (wakeLock != null && wakeLock.isHeld()) {
-                wakeLock.release();
+            if (fallbackRingtone != null) {
+                if (fallbackRingtone.isPlaying()) {
+                    fallbackRingtone.stop();
+                }
+                fallbackRingtone = null;
             }
+        } catch (Exception e) {
+            Log.e(TAG, "Error stopping fallbackRingtone", e);
+            fallbackRingtone = null;
+        }
+    }
+
+    private void finishAlarmSession() {
+        isAlarmRinging = false;
+        releaseMediaPlayer();
+        stopFallbackRingtone();
+        releaseWakeLock();
+        try {
+            stopForeground(true);
         } catch (Exception ignored) {}
+        stopSelf();
     }
 
     @Override
     public void onDestroy() {
-        stopAlarmPlayback();
+        finishAlarmSession();
         super.onDestroy();
     }
 }

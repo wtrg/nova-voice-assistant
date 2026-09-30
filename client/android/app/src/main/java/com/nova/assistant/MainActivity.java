@@ -29,6 +29,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import org.json.JSONObject;
+import com.nova.assistant.reminder.ReminderId;
 import android.content.ComponentName;
 import android.content.pm.ResolveInfo;
 import android.speech.RecognitionListener;
@@ -265,15 +266,20 @@ public class MainActivity extends BridgeActivity {
                         startSpeechPromptInternal();
                     }
 
-                    // Phát stream âm thanh qua URL (Saydi Cuppy TTS trực tuyến, Google TTS, hoặc file audio trong asset APK)
+                    // Phát stream âm thanh qua URL có request-id gắn liền với phiên TurnController
                     @JavascriptInterface
-                    public void playAudioUrl(final String url) {
+                    public void playAudioUrl(final String requestId, final String url) {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                playAudioUrlInternal(url);
+                                playAudioUrlInternal(requestId, url);
                             }
                         });
+                    }
+
+                    @JavascriptInterface
+                    public void playAudioUrl(final String url) {
+                        playAudioUrl("", url);
                     }
 
                     // Dừng phát toàn bộ âm thanh (MediaPlayer và TextToSpeech)
@@ -348,19 +354,27 @@ public class MainActivity extends BridgeActivity {
                         return launchTargetApp(appName, query);
                     }
 
-                    // Đặt chuông báo thức phần cứng qua AlarmManager khi tắt app (F-08, F-09, Plan Phase 4 & 5)
+                    // Đặt chuông báo thức phần cứng qua AlarmManager khi tắt app (Phase 1, 2, 3 Canonical Reminder ID & ACK)
                     @JavascriptInterface
                     public String scheduleNativeAlarm(int id, String title, long timestampMillis) {
                         boolean exact = canScheduleExactAlarms();
                         boolean success = scheduleAlarmDirect(MainActivity.this, id, title, timestampMillis);
-                        return "{\"ok\":" + success + ",\"alarm_id\":" + id + ",\"exact\":" + exact + "}";
+                        return "{\"ok\":" + success + ",\"reminder_id\":\"" + id + "\",\"pending_intent_id\":" + id + ",\"exact\":" + exact + ",\"scheduled_at_epoch_ms\":" + timestampMillis + "}";
                     }
 
                     @JavascriptInterface
                     public String scheduleNativeAlarm(String taskJson) {
                         try {
                             JSONObject obj = new JSONObject(taskJson);
-                            int id = obj.optInt("task_id", (int)(System.currentTimeMillis() % 1000000));
+                            String reminderId = obj.optString("reminder_id", "");
+                            int id = obj.optInt("task_id", 0);
+                            if (reminderId.isEmpty() && id != 0) {
+                                reminderId = String.valueOf(id);
+                            } else if (reminderId.isEmpty()) {
+                                reminderId = java.util.UUID.randomUUID().toString();
+                            }
+                            int pendingIntentId = ReminderId.toRequestCode(reminderId);
+
                             String title = obj.optString("title", "Lịch hẹn");
                             long timestampMillis = obj.optLong("scheduled_at_epoch_ms", 0);
                             if (timestampMillis <= 0) {
@@ -373,16 +387,41 @@ public class MainActivity extends BridgeActivity {
                                     } catch (Exception ignored) {}
                                 }
                             }
-                            return scheduleNativeAlarm(id, title, timestampMillis);
+
+                            boolean exact = canScheduleExactAlarms();
+                            boolean success = scheduleAlarmDirect(MainActivity.this, reminderId, title, timestampMillis);
+                            if (success) {
+                                return "{\"ok\":true,\"reminder_id\":\"" + reminderId + "\",\"pending_intent_id\":" + pendingIntentId + ",\"exact\":" + exact + ",\"scheduled_at_epoch_ms\":" + timestampMillis + "}";
+                            } else {
+                                return "{\"ok\":false,\"reminder_id\":\"" + reminderId + "\",\"error_code\":\"SCHEDULE_FAILED\",\"message\":\"Không thể đặt lịch trên hệ thống Android\"}";
+                            }
                         } catch (Exception e) {
-                            return "{\"ok\":false,\"error\":\"" + escapeForJs(e.getMessage()) + "\"}";
+                            return "{\"ok\":false,\"error_code\":\"INVALID_PAYLOAD\",\"message\":\"" + escapeForJs(e.getMessage()) + "\"}";
                         }
                     }
 
-                    // Hủy chuông báo thức (F-09)
+                    // Hủy chuông báo thức bằng int id hoặc canonical reminder_id string
                     @JavascriptInterface
                     public void cancelNativeAlarm(int id) {
                         cancelAlarmDirect(MainActivity.this, id);
+                    }
+
+                    @JavascriptInterface
+                    public void cancelNativeAlarm(String reminderIdOrInt) {
+                        if (reminderIdOrInt == null || reminderIdOrInt.isEmpty()) return;
+                        try {
+                            int id = Integer.parseInt(reminderIdOrInt);
+                            cancelAlarmDirect(MainActivity.this, id);
+                        } catch (NumberFormatException e) {
+                            int code = ReminderId.toRequestCode(reminderIdOrInt);
+                            cancelAlarmDirect(MainActivity.this, code);
+                        }
+                    }
+
+                    // Nhận quyền điều khiển chuông từ WebView (Safe Alarm Handoff Phase 5)
+                    @JavascriptInterface
+                    public boolean claimAlarmSession(String sessionId) {
+                        return NovaAlarmService.claimAlarm(MainActivity.this, sessionId);
                     }
 
                     // Kiểm tra và yêu cầu quyền Alarm / Notification cho Diagnostics & Reliability Plan
@@ -522,11 +561,13 @@ public class MainActivity extends BridgeActivity {
 
     private void checkAlarmIntent(Intent intent) {
         if (intent != null && intent.getBooleanExtra("auto_alarm", false)) {
-            NovaAlarmService.stopAlarm(MainActivity.this);
             String title = intent.getStringExtra("task_title");
             if (title == null) title = "Làm việc & Học tập";
+            String sessionId = intent.getStringExtra("alarm_session_id");
+            if (sessionId == null) sessionId = "";
             intent.removeExtra("auto_alarm");
             final String safeTitle = title.replace("'", "\\'");
+            final String safeSessionId = sessionId.replace("'", "\\'");
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -536,8 +577,8 @@ public class MainActivity extends BridgeActivity {
                             "  var attempts = 0;\n" +
                             "  function tryTrigger() {\n" +
                             "    if (window.handleNativeAlarmTrigger) {\n" +
-                            "      window.handleNativeAlarmTrigger('" + safeTitle + "');\n" +
-                            "    } else if (attempts < 15) {\n" +
+                            "      window.handleNativeAlarmTrigger('" + safeTitle + "', '" + safeSessionId + "');\n" +
+                            "    } else if (attempts < 20) {\n" +
                             "      attempts++;\n" +
                             "      setTimeout(tryTrigger, 200);\n" +
                             "    }\n" +
@@ -1074,6 +1115,62 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {}
     }
 
+    public static boolean scheduleAlarmDirect(Context context, String reminderId, String title, long timestampMillis) {
+        int id = ReminderId.toRequestCode(reminderId);
+        try {
+            AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            if (alarmManager == null) return false;
+
+            Intent intent = new Intent(context, NovaAlarmReceiver.class);
+            intent.putExtra("reminder_id", reminderId);
+            intent.putExtra("task_id", id);
+            intent.putExtra("task_title", title);
+            PendingIntent pendingIntent = PendingIntent.getBroadcast(
+                context,
+                id,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0)
+            );
+
+            boolean canExact = true;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                canExact = alarmManager.canScheduleExactAlarms();
+            }
+
+            if (canExact) {
+                try {
+                    Intent showIntent = new Intent(context, MainActivity.class);
+                    showIntent.putExtra("auto_alarm", true);
+                    showIntent.putExtra("reminder_id", reminderId);
+                    showIntent.putExtra("task_title", title);
+                    PendingIntent showPendingIntent = PendingIntent.getActivity(
+                        context,
+                        id,
+                        showIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0)
+                    );
+                    AlarmManager.AlarmClockInfo clockInfo = new AlarmManager.AlarmClockInfo(timestampMillis, showPendingIntent);
+                    alarmManager.setAlarmClock(clockInfo, pendingIntent);
+                    saveAlarmToPrefs(context, id, title, timestampMillis);
+                    return true;
+                } catch (SecurityException se) {
+                    Log.w("NovaAlarm", "SecurityException trên setAlarmClock, tự động fallback", se);
+                }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timestampMillis, pendingIntent);
+            } else {
+                alarmManager.set(AlarmManager.RTC_WAKEUP, timestampMillis, pendingIntent);
+            }
+            saveAlarmToPrefs(context, id, title, timestampMillis);
+            return true;
+        } catch (Exception e) {
+            Log.e("NovaAlarm", "Lỗi đặt báo thức canonical:", e);
+            return false;
+        }
+    }
+
     public static boolean scheduleAlarmDirect(Context context, int id, String title, long timestampMillis) {
         try {
             AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
@@ -1170,9 +1267,31 @@ public class MainActivity extends BridgeActivity {
         }).start();
     }
 
+    private void dispatchAudioEvent(final String requestId, final String event) {
+        final String req = requestId != null ? escapeForJs(requestId) : "";
+        final String ev = escapeForJs(event);
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                runOnJs("if (window.onNovaAudioEvent) window.onNovaAudioEvent('" + req + "', '" + ev + "');");
+                if ("started".equals(ev)) {
+                    runOnJs("if (window.onNovaSpeechStarted) window.onNovaSpeechStarted();");
+                } else if ("completed".equals(ev)) {
+                    runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                } else if ("failed".equals(ev)) {
+                    runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                }
+            }
+        });
+    }
+
     private void playAudioUrlInternal(final String url) {
+        playAudioUrlInternal("", url);
+    }
+
+    private void playAudioUrlInternal(final String requestId, final String url) {
         if (url == null || url.trim().isEmpty()) {
-            runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+            dispatchAudioEvent(requestId, "completed");
             return;
         }
 
@@ -1204,6 +1323,7 @@ public class MainActivity extends BridgeActivity {
                     public void onPrepared(MediaPlayer mp) {
                         if (reqId != currentAudioRequestId.get()) {
                             stopAudioInternal();
+                            dispatchAudioEvent(requestId, "cancelled");
                             return;
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -1216,13 +1336,13 @@ public class MainActivity extends BridgeActivity {
                                 mp.setPlaybackParams(params);
                             } catch (Exception ignored) {}
                         }
-                        runOnJs("if (window.onNovaSpeechStarted) window.onNovaSpeechStarted();");
+                        dispatchAudioEvent(requestId, "started");
                         try {
                             mp.start();
                         } catch (Exception ex) {
                             ex.printStackTrace();
                             stopAudioInternal();
-                            runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                            dispatchAudioEvent(requestId, "failed");
                         }
                     }
                 });
@@ -1232,7 +1352,7 @@ public class MainActivity extends BridgeActivity {
                     public void onCompletion(MediaPlayer mp) {
                         if (reqId != currentAudioRequestId.get()) return;
                         stopAudioInternal();
-                        runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                        dispatchAudioEvent(requestId, "completed");
                     }
                 });
 
@@ -1241,7 +1361,7 @@ public class MainActivity extends BridgeActivity {
                     public boolean onError(MediaPlayer mp, int what, int extra) {
                         if (reqId != currentAudioRequestId.get()) return true;
                         stopAudioInternal();
-                        runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                        dispatchAudioEvent(requestId, "failed");
                         return true;
                     }
                 });
@@ -1271,6 +1391,7 @@ public class MainActivity extends BridgeActivity {
                     public void onPrepared(MediaPlayer mp) {
                         if (reqId != currentAudioRequestId.get()) {
                             stopAudioInternal();
+                            dispatchAudioEvent(requestId, "cancelled");
                             return;
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -1283,13 +1404,13 @@ public class MainActivity extends BridgeActivity {
                                 mp.setPlaybackParams(params);
                             } catch (Exception ignored) {}
                         }
-                        runOnJs("if (window.onNovaSpeechStarted) window.onNovaSpeechStarted();");
+                        dispatchAudioEvent(requestId, "started");
                         try {
                             mp.start();
                         } catch (Exception ex) {
                             ex.printStackTrace();
                             stopAudioInternal();
-                            runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                            dispatchAudioEvent(requestId, "failed");
                         }
                     }
                 });
@@ -1299,7 +1420,7 @@ public class MainActivity extends BridgeActivity {
                     public void onCompletion(MediaPlayer mp) {
                         if (reqId != currentAudioRequestId.get()) return;
                         stopAudioInternal();
-                        runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                        dispatchAudioEvent(requestId, "completed");
                     }
                 });
 
@@ -1308,7 +1429,7 @@ public class MainActivity extends BridgeActivity {
                     public boolean onError(MediaPlayer mp, int what, int extra) {
                         if (reqId != currentAudioRequestId.get()) return true;
                         stopAudioInternal();
-                        runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                        dispatchAudioEvent(requestId, "failed");
                         return true;
                     }
                 });
@@ -1321,7 +1442,7 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception e) {
             e.printStackTrace();
             stopAudioInternal();
-            runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+            dispatchAudioEvent(requestId, "failed");
         }
     }
 

@@ -19,8 +19,11 @@ public class NovaVoiceInteractionSession extends VoiceInteractionSession {
             Intent intent = new Intent(getContext(), MainActivity.class);
             intent.setAction(Intent.ACTION_ASSIST);
             intent.putExtra("auto_listen", true);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            startAssistantActivity(intent);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startAssistantActivity(intent);
+            } else {
+                getContext().startActivity(intent);
+            }
         } catch (Exception e) {
             try {
                 Intent intent = new Intent(getContext(), MainActivity.class);
