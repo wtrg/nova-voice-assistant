@@ -4,7 +4,7 @@ import re
 import uuid
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, UploadFile, File, Form, Request
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -125,6 +125,19 @@ class DialogueRequest(BaseModel):
     session_id: Optional[str] = "default"
     generate_audio: Optional[bool] = False
 
+class DialogueResponse(BaseModel):
+    turn_id: str
+    reply: str
+    audio_url: Optional[str] = ""
+    action: Dict[str, Any]
+    continue_listening: bool = False
+
+class ChatResponse(BaseModel):
+    turn_id: str
+    reply: str
+    audio_url: Optional[str] = ""
+    action: Dict[str, Any]
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "nova_voice_assistant"}
@@ -217,7 +230,7 @@ async def get_proactive_prompt(req: ProactiveRequest):
         "audio_url": audio_url
     }
 
-@app.post("/api/dialogue")
+@app.post("/api/dialogue", response_model=DialogueResponse)
 async def handle_dialogue(req: DialogueRequest):
     """
     Xử lý đàm thoại 2 chiều thông minh (F-07: Cách ly phiên theo session_id, P0: Chuẩn hóa turn_id và action contract):
@@ -278,7 +291,7 @@ async def handle_dialogue(req: DialogueRequest):
         "continue_listening": req.in_conversation
     }
 
-@app.post("/api/chat")
+@app.post("/api/chat", response_model=ChatResponse)
 async def chat_text(req: ChatRequest):
     """Nhận câu nói dạng text từ điện thoại, sinh câu trả lời bạn thân & file giọng Cuppy (F-07: session-isolated)"""
     session_id = req.session_id or "default"

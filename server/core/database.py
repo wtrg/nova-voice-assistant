@@ -61,6 +61,34 @@ def add_task(title: str, scheduled_time: str, description: str = "", app_to_open
     conn.close()
     return task_id
 
+def add_tasks_atomic(tasks_data: List[Dict[str, Any]]) -> List[int]:
+    """Thêm danh sách nhiệm vụ theo transaction nguyên tử: nếu một task lỗi, rollback toàn bộ."""
+    if not tasks_data:
+        return []
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    created_ids = []
+    try:
+        for t in tasks_data:
+            cursor.execute("""
+            INSERT INTO tasks (title, description, scheduled_time, app_to_open, recurrence)
+            VALUES (?, ?, ?, ?, ?)
+            """, (
+                t.get("title", "Nhiệm vụ"),
+                t.get("description", ""),
+                t.get("scheduled_time", ""),
+                t.get("app_to_open", ""),
+                t.get("recurrence", "none")
+            ))
+            created_ids.append(cursor.lastrowid)
+        conn.commit()
+        return created_ids
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
 def get_due_tasks(current_time_str: str) -> List[Dict[str, Any]]:
     """Lấy danh sách các task đến hạn cần nhắc nhở"""
     conn = sqlite3.connect(DB_PATH)

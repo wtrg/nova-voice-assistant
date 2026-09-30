@@ -2,7 +2,8 @@ import sys
 import json
 import re
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import uuid
 import logging
 import requests
 from typing import Dict, Any, Tuple, Optional, List
@@ -22,6 +23,7 @@ from config import (
 from core.os_control import open_application
 from core.database import (
     add_task, 
+    add_tasks_atomic,
     update_task_status, 
     snooze_task, 
     get_all_active_tasks,
@@ -60,7 +62,7 @@ try:
     from zoneinfo import ZoneInfo
     VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 except Exception:
-    VN_TZ = None
+    VN_TZ = timezone(timedelta(hours=7))
 
 def parse_time_str(time_str: str) -> str:
     """Chuyển đổi chuỗi thời gian tự nhiên thành YYYY-MM-DD HH:MM theo múi giờ Việt Nam"""
@@ -178,9 +180,10 @@ class AssistantAgent:
                             args = fc.get("args", {})
                             tasks_list = args.get("tasks", [])
                             scheduled_summaries = []
-                            created_task_ids = []
                             detailed_tasks = []
 
+                            # BƯỚC 1 (PHASE 7 ATOMIC VALIDATION): Kiểm tra toàn bộ danh sách TRƯỚC KHI ghi CSDL
+                            validated_tasks = []
                             for t in tasks_list:
                                 t_title = t.get("title", "Nhiệm vụ")
                                 t_raw_time = t.get("scheduled_time", "")
@@ -188,7 +191,7 @@ class AssistantAgent:
                                 formatted_time = parse_time_str(t_raw_time)
                                 
                                 if not formatted_time:
-                                    # P0 BUG FIX: Nếu không parse được thời gian, không tạo rác trong DB
+                                    # Nếu BẤT KỲ task nào không parse được thời gian: KHÔNG CHÈN BẤT KỲ TASK NÀO VÀO CSDL
                                     reply_text = f"Tớ nghe rõ là cậu muốn nhắc việc '{t_title}', nhưng chưa rõ là vào lúc nào. Cậu muốn tớ nhắc lúc mấy giờ (ví dụ 14h30 hoặc sau 15 phút)?"
                                     action_result = {
                                         "type": "schedule_requires_clarification",
@@ -198,24 +201,43 @@ class AssistantAgent:
                                     }
                                     return reply_text, action_result
 
-                                task_id = add_task(title=t_title, scheduled_time=formatted_time, app_to_open=t_app)
-                                created_task_ids.append(task_id)
-                                time_display = formatted_time.split(" ")[-1]
-                                scheduled_summaries.append(f"{t_title} lúc {time_display}")
-
+                                # BƯỚC 2 (PHASE 6 TIMEZONE CONVERSION): Chuyển đổi timestamp có múi giờ VN_TZ
                                 try:
                                     dt = datetime.strptime(formatted_time, "%Y-%m-%d %H:%M")
+                                    dt = dt.replace(tzinfo=VN_TZ)
                                     epoch_ms = int(dt.timestamp() * 1000)
                                 except Exception:
                                     epoch_ms = None
 
-                                detailed_tasks.append({
-                                    "task_id": task_id,
+                                validated_tasks.append({
+                                    "reminder_id": str(uuid.uuid4()),
                                     "title": t_title,
                                     "scheduled_time": formatted_time,
-                                    "scheduled_at_epoch_ms": epoch_ms,
-                                    "timezone": "Asia/Ho_Chi_Minh",
+                                    "epoch_ms": epoch_ms,
                                     "app_to_open": t_app
+                                })
+
+                            # BƯỚC 3 (PHASE 7 ATOMIC INSERT): Chèn toàn bộ các task hợp lệ trong 1 transaction
+                            created_task_ids = add_tasks_atomic([
+                                {
+                                    "title": vt["title"],
+                                    "scheduled_time": vt["scheduled_time"],
+                                    "app_to_open": vt["app_to_open"]
+                                } for vt in validated_tasks
+                            ])
+
+                            for idx, vt in enumerate(validated_tasks):
+                                task_id = created_task_ids[idx] if idx < len(created_task_ids) else (idx + 1)
+                                time_display = vt["scheduled_time"].split(" ")[-1]
+                                scheduled_summaries.append(f"{vt['title']} lúc {time_display}")
+                                detailed_tasks.append({
+                                    "reminder_id": vt["reminder_id"],
+                                    "task_id": task_id,
+                                    "title": vt["title"],
+                                    "scheduled_time": vt["scheduled_time"],
+                                    "scheduled_at_epoch_ms": vt["epoch_ms"],
+                                    "timezone": "Asia/Ho_Chi_Minh",
+                                    "app_to_open": vt["app_to_open"]
                                 })
 
                             action_result = {
@@ -375,6 +397,7 @@ class AssistantAgent:
 
 
 assistant_agent = AssistantAgent()
+Agent = AssistantAgent
 
 if __name__ == "__main__":
     if sys.platform == "win32":
