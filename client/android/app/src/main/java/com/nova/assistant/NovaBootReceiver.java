@@ -38,12 +38,23 @@ public class NovaBootReceiver extends BroadcastReceiver {
                         int id = Integer.parseInt(key.substring("alarm_".length()));
                         String val = String.valueOf(entry.getValue());
                         String[] parts = val.split("\\|\\|\\|");
-                        if (parts.length == 2) {
+                        if (parts.length >= 3) {
+                            String reminderId = parts[0];
+                            String title = parts[1];
+                            long timestamp = Long.parseLong(parts[2]);
+                            if (timestamp > now) {
+                                MainActivity.scheduleAlarmDirect(context, reminderId, title, timestamp);
+                                Log.d(TAG, "Restored canonical alarm reminderId=" + reminderId + " (reqCode=" + id + ") for: " + title);
+                            } else {
+                                // Quá hạn, dọn dẹp
+                                prefs.edit().remove(key).apply();
+                            }
+                        } else if (parts.length == 2) {
                             String title = parts[0];
                             long timestamp = Long.parseLong(parts[1]);
                             if (timestamp > now) {
                                 MainActivity.scheduleAlarmDirect(context, id, title, timestamp);
-                                Log.d(TAG, "Restored alarm id=" + id + " for: " + title);
+                                Log.d(TAG, "Restored legacy alarm id=" + id + " for: " + title);
                             } else {
                                 // Quá hạn, dọn dẹp
                                 prefs.edit().remove(key).apply();

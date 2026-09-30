@@ -122,21 +122,25 @@ class ReminderClient {
           timezone: task.timezone || "Asia/Ho_Chi_Minh"
         }));
 
+        let ack = null;
         if (typeof ackStr === 'string' && ackStr.startsWith("{")) {
-          const ack = JSON.parse(ackStr);
-          this.scheduledAlarms.set(reminderId, { task, ack });
-          return ack;
+          ack = JSON.parse(ackStr);
         } else {
-          return { ok: true, reminder_id: reminderId, exact: true };
+          ack = { ok: true, reminder_id: reminderId, exact: true };
         }
+        this.scheduledAlarms.set(reminderId, { task, ack });
+        this.sendDeviceAck(reminderId, ack.ok ? "confirmed" : "device_schedule_failed", ack.message || ack.error);
+        return ack;
       } catch (err) {
         console.error("[ReminderClient] scheduleNativeAlarm error:", err);
+        this.sendDeviceAck(reminderId, "device_schedule_failed", err.message);
         return { ok: false, reminder_id: reminderId, error: err.message };
       }
     }
 
     // Nếu chạy trên Web / Test Runner
     this.scheduledAlarms.set(reminderId, { task, simulated: true });
+    this.sendDeviceAck(reminderId, "confirmed");
     return {
       ok: true,
       reminder_id: reminderId,
@@ -145,6 +149,24 @@ class ReminderClient {
       scheduled_at_epoch_ms: timestamp,
       simulated: true
     };
+  }
+
+  async sendDeviceAck(reminderId, status, error = null) {
+    if (typeof fetch !== 'function' || !reminderId) return;
+    try {
+      let baseUrl = "";
+      if (typeof getApiBaseUrl === 'function') {
+        baseUrl = getApiBaseUrl();
+      } else if (typeof window !== 'undefined' && window.getApiBaseUrl) {
+        baseUrl = window.getApiBaseUrl();
+      }
+      if (!baseUrl) return;
+      await fetch(`${baseUrl}/api/reminders/${encodeURIComponent(reminderId)}/device-ack`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, error: error ? String(error) : null })
+      });
+    } catch (ignored) {}
   }
 
   cancelNativeAlarm(reminderId) {

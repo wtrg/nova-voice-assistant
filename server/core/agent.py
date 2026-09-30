@@ -217,12 +217,14 @@ class AssistantAgent:
                                     "app_to_open": t_app
                                 })
 
-                            # BƯỚC 3 (PHASE 7 ATOMIC INSERT): Chèn toàn bộ các task hợp lệ trong 1 transaction
+                            # BƯỚC 3 (PHASE 7 ATOMIC INSERT & STAGE 8 CANONICAL DB PERSISTENCE): Chèn toàn bộ các task hợp lệ trong 1 transaction
                             created_task_ids = add_tasks_atomic([
                                 {
+                                    "reminder_id": vt["reminder_id"],
                                     "title": vt["title"],
                                     "scheduled_time": vt["scheduled_time"],
-                                    "app_to_open": vt["app_to_open"]
+                                    "app_to_open": vt["app_to_open"],
+                                    "scheduling_status": "pending_device_ack"
                                 } for vt in validated_tasks
                             ])
 

@@ -48,6 +48,14 @@ public class NovaAlarmService extends Service {
     private MediaPlayer mediaPlayer = null;
     private Ringtone fallbackRingtone = null;
     private PowerManager.WakeLock wakeLock = null;
+    private final android.os.Handler safetyHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable safetyTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            Log.i(TAG, "Alarm safety timeout reached (120s)");
+            finishAlarmSession();
+        }
+    };
 
     public static void stopAlarm(Context context) {
         try {
@@ -148,6 +156,8 @@ public class NovaAlarmService extends Service {
         startForegroundWithNotification(taskId, reminderId, taskTitle, currentSessionId);
         // 4. Bật cờ chuông đang reo
         isAlarmRinging = true;
+        safetyHandler.removeCallbacks(safetyTimeoutRunnable);
+        safetyHandler.postDelayed(safetyTimeoutRunnable, 120000L);
         // 5. Bắt đầu phát âm thanh chuông
         startAlarmAudio();
 
@@ -255,16 +265,19 @@ public class NovaAlarmService extends Service {
             try { afd.close(); } catch (Exception ignored) {}
 
             mediaPlayer.setVolume(1.0f, 1.0f);
-            mediaPlayer.setLooping(false);
+            mediaPlayer.setLooping(true);
             mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
                 @Override
                 public void onCompletion(MediaPlayer mp) {
-                    finishAlarmSession();
+                    // Invariant: Do not finish the alarm session simply because cuppy_alarm.wav completes.
+                    // Keep native alerting alive until STOP, SNOOZE, successful CLAIM, or safety timeout.
+                    Log.d(TAG, "cuppy_alarm.wav playback cycle completed; continuing looping until user action or claim");
                 }
             });
             mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                 @Override
                 public boolean onError(MediaPlayer mp, int what, int extra) {
+                    Log.w(TAG, "mediaPlayer error what=" + what + ", extra=" + extra);
                     finishAlarmSession();
                     return true;
                 }
@@ -277,6 +290,9 @@ public class NovaAlarmService extends Service {
                 if (soundUri == null) soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
                 fallbackRingtone = RingtoneManager.getRingtone(this, soundUri);
                 if (fallbackRingtone != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        fallbackRingtone.setLooping(true);
+                    }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                         fallbackRingtone.setAudioAttributes(
                             new AudioAttributes.Builder()
@@ -303,7 +319,7 @@ public class NovaAlarmService extends Service {
                 }
             }
             if (wakeLock != null && !wakeLock.isHeld()) {
-                wakeLock.acquire(60000);
+                wakeLock.acquire(130000L);
             }
         } catch (Exception ignored) {}
     }
@@ -346,6 +362,7 @@ public class NovaAlarmService extends Service {
     }
 
     private void finishAlarmSession() {
+        safetyHandler.removeCallbacks(safetyTimeoutRunnable);
         isAlarmRinging = false;
         releaseMediaPlayer();
         stopFallbackRingtone();

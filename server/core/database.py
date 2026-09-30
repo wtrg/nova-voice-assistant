@@ -24,13 +24,23 @@ def init_db():
         title TEXT NOT NULL,
         description TEXT,
         scheduled_time TEXT NOT NULL, -- Định dạng YYYY-MM-DD HH:MM
-        status TEXT DEFAULT 'pending', -- pending, completed, snoozed, cancelled
+        status TEXT DEFAULT 'pending', -- pending, completed, snoozed, cancelled, device_schedule_failed
         recurrence TEXT DEFAULT 'none', -- none, daily, weekdays, weekly
         app_to_open TEXT, -- Tên ứng dụng mở kèm (vd: 'code', 'chrome', 'excel')
         snooze_count INTEGER DEFAULT 0,
+        reminder_id TEXT, -- Canonical reminder ID UUID
+        scheduling_status TEXT DEFAULT 'pending_device_ack', -- pending_device_ack, confirmed, device_schedule_failed
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """)
+
+    # Safe migration: bổ sung cột reminder_id và scheduling_status nếu database đã tồn tại từ trước
+    cursor.execute("PRAGMA table_info(tasks)")
+    existing_cols = [col[1] for col in cursor.fetchall()]
+    if "reminder_id" not in existing_cols:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN reminder_id TEXT")
+    if "scheduling_status" not in existing_cols:
+        cursor.execute("ALTER TABLE tasks ADD COLUMN scheduling_status TEXT DEFAULT 'pending_device_ack'")
 
     # Bảng ghi nhật ký đôn đốc & lý do hoãn (phục vụ AI phân tích tâm lý)
     cursor.execute("""
@@ -48,14 +58,17 @@ def init_db():
     conn.commit()
     conn.close()
 
-def add_task(title: str, scheduled_time: str, description: str = "", app_to_open: str = "", recurrence: str = "none") -> int:
-    """Thêm một nhiệm vụ nhắc nhở mới"""
+def add_task(title: str, scheduled_time: str, description: str = "", app_to_open: str = "", recurrence: str = "none", reminder_id: Optional[str] = None, scheduling_status: str = "pending_device_ack") -> int:
+    """Thêm một nhiệm vụ nhắc nhở mới với canonical reminder_id"""
+    import uuid
+    if not reminder_id:
+        reminder_id = str(uuid.uuid4())
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
-    INSERT INTO tasks (title, description, scheduled_time, app_to_open, recurrence)
-    VALUES (?, ?, ?, ?, ?)
-    """, (title, description, scheduled_time, app_to_open, recurrence))
+    INSERT INTO tasks (title, description, scheduled_time, app_to_open, recurrence, reminder_id, scheduling_status)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (title, description, scheduled_time, app_to_open, recurrence, reminder_id, scheduling_status))
     task_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -65,20 +78,25 @@ def add_tasks_atomic(tasks_data: List[Dict[str, Any]]) -> List[int]:
     """Thêm danh sách nhiệm vụ theo transaction nguyên tử: nếu một task lỗi, rollback toàn bộ."""
     if not tasks_data:
         return []
+    import uuid
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     created_ids = []
     try:
         for t in tasks_data:
+            r_id = t.get("reminder_id") or str(uuid.uuid4())
+            sched_status = t.get("scheduling_status") or "pending_device_ack"
             cursor.execute("""
-            INSERT INTO tasks (title, description, scheduled_time, app_to_open, recurrence)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO tasks (title, description, scheduled_time, app_to_open, recurrence, reminder_id, scheduling_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 t.get("title", "Nhiệm vụ"),
                 t.get("description", ""),
                 t.get("scheduled_time", ""),
                 t.get("app_to_open", ""),
-                t.get("recurrence", "none")
+                t.get("recurrence", "none"),
+                r_id,
+                sched_status
             ))
             created_ids.append(cursor.lastrowid)
         conn.commit()
@@ -89,14 +107,35 @@ def add_tasks_atomic(tasks_data: List[Dict[str, Any]]) -> List[int]:
     finally:
         conn.close()
 
+def update_task_device_ack(reminder_id: str, status: str, error: Optional[str] = None) -> bool:
+    """Cập nhật trạng thái device ACK (confirmed hoặc device_schedule_failed)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if status == "device_schedule_failed":
+        cursor.execute("""
+        UPDATE tasks 
+        SET scheduling_status = ?, status = 'device_schedule_failed' 
+        WHERE reminder_id = ? OR CAST(id AS TEXT) = ?
+        """, (status, reminder_id, reminder_id))
+    else:
+        cursor.execute("""
+        UPDATE tasks 
+        SET scheduling_status = ? 
+        WHERE reminder_id = ? OR CAST(id AS TEXT) = ?
+        """, (status, reminder_id, reminder_id))
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
 def get_due_tasks(current_time_str: str) -> List[Dict[str, Any]]:
-    """Lấy danh sách các task đến hạn cần nhắc nhở"""
+    """Lấy danh sách các task đến hạn cần nhắc nhở (bỏ qua các task lỗi phần cứng)"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
     SELECT * FROM tasks 
-    WHERE status IN ('pending', 'snoozed') AND scheduled_time <= ?
+    WHERE status IN ('pending', 'snoozed') AND (scheduling_status IS NULL OR scheduling_status != 'device_schedule_failed') AND scheduled_time <= ?
     ORDER BY scheduled_time ASC
     """, (current_time_str,))
     rows = cursor.fetchall()
@@ -136,11 +175,11 @@ def log_interaction(task_id: Optional[int], user_response: str, ai_reply: str, a
     conn.close()
 
 def get_all_active_tasks() -> List[Dict[str, Any]]:
-    """Lấy toàn bộ các task đang chờ hoặc bị hoãn"""
+    """Lấy toàn bộ các task đang chờ hoặc bị hoãn (bỏ qua task lỗi phần cứng)"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM tasks WHERE status IN ('pending', 'snoozed') ORDER BY scheduled_time ASC")
+    cursor.execute("SELECT * FROM tasks WHERE status IN ('pending', 'snoozed') AND (scheduling_status IS NULL OR scheduling_status != 'device_schedule_failed') ORDER BY scheduled_time ASC")
     rows = cursor.fetchall()
     tasks = [dict(row) for row in rows]
     conn.close()
