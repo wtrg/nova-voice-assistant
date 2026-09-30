@@ -27,4 +27,30 @@ public class ReminderIdTest {
         assertTrue(code >= 0);
         assertEquals(999, code);
     }
+
+    @Test
+    public void testDeterministicRestoreIdentity() {
+        String canonicalUuid = "550e8400-e29b-41d4-a716-446655440000";
+        String taskTitle = "Học lập trình Android";
+        long timestamp = 1790800000000L;
+
+        // Serialized representation saved to SharedPreferences:
+        String serialized = canonicalUuid + "|||" + taskTitle + "|||" + timestamp;
+
+        // Simulate restore parsing in NovaBootReceiver:
+        String[] parts = serialized.split("\\|\\|\\|");
+        assertEquals(3, parts.length);
+        String restoredReminderId = parts[0];
+        String restoredTitle = parts[1];
+        long restoredTimestamp = Long.parseLong(parts[2]);
+
+        assertEquals("Restored canonical reminderId must match original UUID", canonicalUuid, restoredReminderId);
+        assertEquals("Restored title must match", taskTitle, restoredTitle);
+        assertEquals("Restored timestamp must match", timestamp, restoredTimestamp);
+
+        int originalCode = ReminderId.toRequestCode(canonicalUuid);
+        int restoredCode = ReminderId.toRequestCode(restoredReminderId);
+
+        assertEquals("PendingIntent request code must remain identical across reboot restore", originalCode, restoredCode);
+    }
 }

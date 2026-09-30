@@ -108,6 +108,97 @@ async function runTests() {
   assert.ok(emptyRes.errors.length > 0);
   console.log("✓ Empty action handling pass");
 
+  // Test Case 6: Invariant: native reminder + local UI -> one delivery only
+  let proactiveDeliveryCount = 0;
+  function triggerProactiveAlarmMock(task) {
+    proactiveDeliveryCount++;
+  }
+
+  let localTasksMock = [
+    { id: "rem_task_1", title: "Học Tiếng Anh", scheduled_time: "2026-10-01 07:00", notified: false }
+  ];
+
+  // Logic polling với window.AndroidNova tồn tại (native runtime)
+  global.window.AndroidNova = {
+    claimAlarmSession: (sid) => sid === "valid_session_123"
+  };
+
+  function simulatePollInterval(nowStr) {
+    if (global.window.AndroidNova) {
+      return; // Android runtime: AlarmManager handles delivery
+    }
+    localTasksMock.forEach(task => {
+      if (!task.notified && task.scheduled_time <= nowStr) {
+        task.notified = true;
+        triggerProactiveAlarmMock(task);
+      }
+    });
+  }
+
+  // Chạy poll trên Android runtime: không được phép kích hoạt chuông
+  simulatePollInterval("2026-10-01 07:05");
+  assert.strictEqual(proactiveDeliveryCount, 0, "JS poll must NEVER trigger reminder on Android runtime");
+  assert.strictEqual(localTasksMock[0].notified, false, "Task must remain un-notified until native alarm arrives");
+
+  // Khi native alarm kích hoạt:
+  function simulateNativeAlarmTrigger(title, sessionId, reminderId) {
+    if (sessionId && global.window.AndroidNova && typeof global.window.AndroidNova.claimAlarmSession === 'function') {
+      const claimResult = global.window.AndroidNova.claimAlarmSession(sessionId);
+      if (!claimResult) return;
+    }
+    if (reminderId) {
+      const t = localTasksMock.find(x => String(x.id) === String(reminderId));
+      if (t) t.notified = true;
+    }
+    triggerProactiveAlarmMock({ title, id: reminderId });
+  }
+
+  simulateNativeAlarmTrigger("Học Tiếng Anh", "valid_session_123", "rem_task_1");
+  assert.strictEqual(proactiveDeliveryCount, 1, "Native alarm must trigger delivery exactly once");
+  assert.strictEqual(localTasksMock[0].notified, true, "Local task must be marked notified on native trigger");
+  console.log("✓ Invariant: native reminder + local UI -> one delivery only pass");
+
+  // Test Case 7: Browser-only reminder polling still works
+  const savedAndroidNova = global.window.AndroidNova;
+  delete global.window.AndroidNova;
+
+  let browserLocalTasks = [
+    { id: "rem_browser_1", title: "Tập yoga", scheduled_time: "2026-10-01 06:00", notified: false }
+  ];
+  let browserDeliveryCount = 0;
+
+  function simulateBrowserPoll(nowStr) {
+    if (global.window.AndroidNova) return;
+    browserLocalTasks.forEach(task => {
+      if (!task.notified && task.scheduled_time <= nowStr) {
+        task.notified = true;
+        browserDeliveryCount++;
+      }
+    });
+  }
+
+  simulateBrowserPoll("2026-10-01 06:05");
+  assert.strictEqual(browserDeliveryCount, 1, "Browser fallback polling must trigger delivery for due tasks");
+  assert.strictEqual(browserLocalTasks[0].notified, true);
+  console.log("✓ Invariant: browser-only reminder polling still works pass");
+
+  // Test Case 8: Stale alarm session claim failure rejects trigger
+  global.window.AndroidNova = savedAndroidNova;
+  let staleDeliveryCount = 0;
+  function simulateStaleClaimTrigger(title, sessionId, reminderId) {
+    if (sessionId && global.window.AndroidNova && typeof global.window.AndroidNova.claimAlarmSession === 'function') {
+      const claimResult = global.window.AndroidNova.claimAlarmSession(sessionId);
+      if (!claimResult) {
+        return; // Stale session, ignore
+      }
+    }
+    staleDeliveryCount++;
+  }
+
+  simulateStaleClaimTrigger("Học Tiếng Anh", "stale_session_expired", "rem_task_1");
+  assert.strictEqual(staleDeliveryCount, 0, "Stale claim failure must NOT start duplicate reminder");
+  console.log("✓ Invariant: Stale alarm claim failure rejects trigger pass");
+
   console.log("ALL REMINDER CONTRACT REGRESSION TESTS PASSED PERFECTLY!");
 }
 

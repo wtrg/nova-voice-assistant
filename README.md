@@ -20,7 +20,7 @@
   - Pipeline Prefetch: Chia nhỏ câu đầu tiên (<65 ký tự) để cất tiếng tức thì (<200ms) trong khi tiếp tục sinh các câu sau ở chế độ nền.
 - 📱 **Điều Khiển Thiết Bị Android Đa Nhiệm**:
   - Mở ứng dụng và kích hoạt chức năng hệ thống bằng giọng nói: YouTube (tìm kiếm bài hát), Bản đồ Google Maps (dẫn đường), Camera, Báo thức, Zalo, Facebook, TikTok.
-  - Cài đặt làm Trợ lý mặc định của hệ điều hành Android (nhấn giữ nút Nguồn hoặc vuốt góc màn hình).
+  - Cài đặt Trợ lý mặc định hệ điều hành & Background/Screen-off Hotword: `[DEVICE TEST REQUIRED]` *(Yêu cầu thiết bị phần cứng thực tế và OEM ROM service; chưa đánh dấu hoàn tất trong V3 do giới hạn môi trường headless CI/CD & Android background recognition).*
 - 🧠 **Bộ Não AI Đa Tầng (Multi-LLM Engine)**:
   - Hỗ trợ linh hoạt **Google Gemini 2.5 Flash** và **Groq LLaMA 3.3 70B**.
   - Tự động nhận diện ý định (Intent Routing), ghi nhớ ngữ cảnh và phân biệt chính xác câu lệnh điều khiển thiết bị so với trò chuyện tự do.
