@@ -38,6 +38,7 @@
     .wave-active .w-bar:nth-child(5) { animation: wave-bar 0.7s infinite 0.25s; }
   </style>
   <script src="js/voice/prebuiltAudioMap.js"></script>
+  <script src="js/reminders/ReminderId.js"></script>
   <script src="js/conversation/ConversationStateMachine.js"></script>
   <script src="js/conversation/TurnController.js"></script>
   <script src="js/reminders/ReminderClient.js"></script>
@@ -331,6 +332,56 @@
     const reminderClient = (typeof ReminderClient !== 'undefined') ? new ReminderClient() : null;
     const diagnosticsPanel = (typeof DiagnosticsPanel !== 'undefined') ? new DiagnosticsPanel(getApiBaseUrl()) : null;
 
+    if (typeof window !== 'undefined') {
+      window.convStateMachine = convStateMachine;
+      window.turnController = turnController;
+      window.reminderClient = reminderClient;
+      window.diagnosticsPanel = diagnosticsPanel;
+    }
+
+    // Audio Event Dispatcher: quản lý tts_request_id và turn_id correlation (Phase 5)
+    const activeAudioRequests = new Map();
+
+    window.onNovaAudioEvent = function(requestId, event) {
+      console.log(`[AudioEvent] req=${requestId}, event=${event}`);
+      if (!requestId) {
+        if (event === "completed" && typeof window._nativeTTSFinishedCallback === 'function') {
+          const cb = window._nativeTTSFinishedCallback;
+          window._nativeTTSFinishedCallback = null;
+          cb();
+        } else if (event === "started" && typeof window.onNovaSpeechStarted === 'function') {
+          window.onNovaSpeechStarted();
+        } else if (event === "failed" && typeof window.onNativeAudioFailed === 'function') {
+          const cb = window.onNativeAudioFailed;
+          window.onNativeAudioFailed = null;
+          cb();
+        }
+        return;
+      }
+
+      const handler = activeAudioRequests.get(requestId);
+      if (!handler) {
+        console.log(`[AudioEvent] Stale or unmonitored requestId=${requestId} (${event})`);
+        return;
+      }
+
+      if (handler.turnId && turnController && !turnController.isCurrentTurn(handler.turnId)) {
+        console.warn(`[AudioEvent] Rejected event for stale turn: ${handler.turnId}`);
+        activeAudioRequests.delete(requestId);
+        return;
+      }
+
+      if (event === "started") {
+        if (typeof handler.onStart === 'function') handler.onStart();
+      } else if (event === "completed") {
+        activeAudioRequests.delete(requestId);
+        if (typeof handler.onDone === 'function') handler.onDone();
+      } else if (event === "failed" || event === "cancelled") {
+        activeAudioRequests.delete(requestId);
+        if (typeof handler.onFail === 'function') handler.onFail();
+      }
+    };
+
     // Helper an toàn đọc JSON từ LocalStorage (F-11: ngăn chặn JSON hỏng làm chết app)
     function safeGetJson(key, fallback = []) {
       try {
@@ -538,6 +589,9 @@
 
     function finalizeAndSubmitUtterance() {
       if (isProcessingUtterance) return;
+      if (convStateMachine && convStateMachine.is("LISTENING")) {
+        convStateMachine.transition("FINALIZING_STT");
+      }
       if (speechPauseTimer) {
         clearTimeout(speechPauseTimer);
         speechPauseTimer = null;
@@ -1051,10 +1105,14 @@
         let isDone = false;
         let connectTimeout = null;
 
+        const currentTurnId = (turnController && turnController.activeTurnId) ? turnController.activeTurnId : null;
+        const requestId = (turnController && currentTurnId) ? turnController.createTtsRequest(currentTurnId) : ('tts_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
+
         const onDoneCallback = () => {
           if (isDone) return;
           isDone = true;
           if (connectTimeout) clearTimeout(connectTimeout);
+          activeAudioRequests.delete(requestId);
           window._nativeTTSFinishedCallback = null;
           window.onNativeAudioFailed = null;
           window.onNovaSpeechStarted = null;
@@ -1065,6 +1123,7 @@
           if (isDone) return;
           isDone = true;
           if (connectTimeout) clearTimeout(connectTimeout);
+          activeAudioRequests.delete(requestId);
           window._nativeTTSFinishedCallback = null;
           window.onNativeAudioFailed = null;
           window.onNovaSpeechStarted = null;
@@ -1077,14 +1136,22 @@
         };
 
         const onStartedCallback = () => {
-          // R02: Khi âm thanh đã thực sự bắt đầu phát trên phần cứng, HỦY connect timeout!
-          // Hardware MediaPlayer sẽ tự động gọi onDoneCallback khi bài đọc kết thúc (dù 3s, 8s, 20s hay 45s)
           if (connectTimeout) {
             clearTimeout(connectTimeout);
             connectTimeout = null;
           }
+          if (turnController && currentTurnId) {
+            turnController.markSpeaking(currentTurnId);
+          }
           triggerStartChunk();
         };
+
+        activeAudioRequests.set(requestId, {
+          turnId: currentTurnId,
+          onStart: onStartedCallback,
+          onDone: onDoneCallback,
+          onFail: onAudioFailed
+        });
 
         window._nativeTTSFinishedCallback = onDoneCallback;
         window.onNovaSpeechStarted = onStartedCallback;
@@ -1097,7 +1164,7 @@
         }, 35000);
 
         try {
-          window.AndroidNova.playAudioUrl(cuppyTunnel);
+          window.AndroidNova.playAudioUrl(requestId, cuppyTunnel);
           return;
         } catch (e) {
           console.warn("playAudioUrl error:", e);
@@ -1263,6 +1330,9 @@
         currentTTSAudio = null;
         if (orb) orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
         if (wave) wave.classList.remove("wave-active");
+        if (turnController && turnController.activeTurnId) {
+          turnController.finishTurn(turnController.activeTurnId);
+        }
         if (onEndedCallback) {
           onEndedCallback();
         }
@@ -1274,16 +1344,31 @@
       if (prebuiltAudio) {
         console.log("Playing Prebuilt Cuppy Voice:", prebuiltAudio);
         if (window.AndroidNova && typeof window.AndroidNova.playAudioUrl === 'function') {
+          const currentTurnId = (turnController && turnController.activeTurnId) ? turnController.activeTurnId : null;
+          const requestId = (turnController && currentTurnId) ? turnController.createTtsRequest(currentTurnId) : ('tts_pre_' + Date.now());
+
+          activeAudioRequests.set(requestId, {
+            turnId: currentTurnId,
+            onStart: triggerStart,
+            onDone: finishSpeaking,
+            onFail: () => {
+              const chunks = splitTextIntoVoiceChunks(cleanText, 140);
+              playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart);
+            }
+          });
+
           window._nativeTTSFinishedCallback = finishSpeaking;
           window.onNovaSpeechStarted = triggerStart;
           window.onNativeAudioFailed = () => {
+            activeAudioRequests.delete(requestId);
             const chunks = splitTextIntoVoiceChunks(cleanText, 140);
             playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart);
           };
           try {
-            window.AndroidNova.playAudioUrl("file:///android_asset/public/" + prebuiltAudio);
+            window.AndroidNova.playAudioUrl(requestId, "file:///android_asset/public/" + prebuiltAudio);
             return;
           } catch(e) {
+            activeAudioRequests.delete(requestId);
             console.warn("Error playing prebuilt audio via playAudioUrl:", e);
           }
         }
@@ -1550,19 +1635,48 @@ QUY TẮC PHẢN HỒI:
 
         // Kiểm tra Tool Calling schedule_tasks (Lên lịch trình)
         if (part.functionCall && part.functionCall.name === "schedule_tasks") {
-          const tasks = part.functionCall.args.tasks || [];
+          const rawTasks = part.functionCall.args.tasks || [];
+          const structuredTasks = [];
           const summaries = [];
-          for (const t of tasks) {
+          for (const t of rawTasks) {
             const timeStr = parseNaturalTime(t.scheduled_time);
             if (timeStr) {
-              addLocalTask(t.title, timeStr, t.app_to_open || "");
+              const parts = timeStr.split(" ");
+              const dateParts = parts[0].split("-");
+              const timeParts = parts[1].split(":");
+              const targetDate = new Date(
+                parseInt(dateParts[0]),
+                parseInt(dateParts[1]) - 1,
+                parseInt(dateParts[2]),
+                parseInt(timeParts[0]),
+                parseInt(timeParts[1]),
+                0
+              );
+              const epochMs = targetDate.getTime();
+              const canonicalId = (window.ReminderId && typeof window.ReminderId.generateReminderId === 'function') ?
+                window.ReminderId.generateReminderId() :
+                ("rem_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 9));
+
+              structuredTasks.push({
+                reminder_id: canonicalId,
+                title: t.title || "Lịch hẹn",
+                scheduled_time: timeStr,
+                scheduled_at_epoch_ms: epochMs,
+                timezone: "Asia/Ho_Chi_Minh",
+                app_to_open: t.app_to_open || ""
+              });
               const displayTime = timeStr.split(" ").pop();
-              summaries.push(`${t.title} lúc ${displayTime}`);
+              summaries.push(`${t.title || "Lịch hẹn"} lúc ${displayTime}`);
             }
           }
-          actionResult = { action: "schedule_tasks", tasks: tasks, summary: summaries };
-          if (summaries.length > 0) {
-            replyText = `Chốt đơn luôn! Tớ đã ghi nhớ lịch: ${summaries.join(", ")}. Đến giờ tớ sẽ réo cậu ngay, chuẩn bị tinh thần tập trung làm việc nha!`;
+          actionResult = {
+            type: "schedule_tasks",
+            action: "schedule_tasks",
+            tasks: structuredTasks,
+            summary: summaries
+          };
+          if (structuredTasks.length > 0) {
+            replyText = `Tớ đang lên lịch hẹn: ${summaries.join(", ")}...`;
           } else {
             replyText = "Tớ chưa nghe rõ mốc thời gian cậu muốn hẹn. Cậu có thể nói rõ giờ giúp tớ được không, ví dụ như 8 giờ sáng hoặc 15 phút nữa nhé!";
           }
@@ -1643,49 +1757,33 @@ QUY TẮC PHẢN HỒI:
 
     let lastTaskIdSeq = 0;
     function generateSafeTaskId() {
-      lastTaskIdSeq = (lastTaskIdSeq + 1) % 1000;
-      // F-20: Đảm bảo không va chạm ID và an toàn với 32-bit signed int trong Java PendingIntent
-      return Math.floor((Date.now() % 1000000) * 1000 + lastTaskIdSeq);
+      if (window.ReminderId && typeof window.ReminderId.generateReminderId === 'function') {
+        return window.ReminderId.generateReminderId();
+      }
+      return 'rem_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9);
     }
 
-    function addLocalTask(title, scheduledTime, appToOpen = "") {
+    function addLocalTask(title, scheduledTime, appToOpen = "", customId = null) {
       if (!scheduledTime) {
         console.warn("Không thể tạo task vì không có thời gian hẹn hợp lệ:", title);
         return null;
       }
       const task = {
-        id: generateSafeTaskId(),
+        id: customId || generateSafeTaskId(),
         title: title,
         scheduled_time: scheduledTime,
         app_to_open: appToOpen,
         notified: false
       };
-      localTasks.push(task);
+      const existingIdx = localTasks.findIndex(t => String(t.id) === String(task.id));
+      if (existingIdx >= 0) {
+        localTasks[existingIdx] = task;
+      } else {
+        localTasks.push(task);
+      }
       saveTasks();
       updateTaskListUI();
-      console.log("Đã thêm task:", task);
-
-      // Đăng ký chuông báo thức phần cứng Exact Alarm của Android (Kể cả khi tắt hẳn app)
-      try {
-        const parts = scheduledTime.split(" ");
-        const dateParts = parts[0].split("-");
-        const timeParts = parts[1].split(":");
-        const targetDate = new Date(
-          parseInt(dateParts[0]),
-          parseInt(dateParts[1]) - 1,
-          parseInt(dateParts[2]),
-          parseInt(timeParts[0]),
-          parseInt(timeParts[1]),
-          0
-        );
-        const millis = targetDate.getTime();
-        if (millis > Date.now() && window.AndroidNova && window.AndroidNova.scheduleNativeAlarm) {
-          window.AndroidNova.scheduleNativeAlarm(task.id, task.title, millis);
-          console.log("Registered Native Hardware Alarm for:", targetDate);
-        }
-      } catch(e) {
-        console.warn("Lỗi đăng ký native alarm:", e);
-      }
+      console.log("Đã thêm task vào local UI (không gọi scheduleNativeAlarm từ addLocalTask):", task);
       return task;
     }
 
@@ -1711,24 +1809,30 @@ QUY TẮC PHẢN HỒI:
             <p class="font-semibold text-white">${escapeHtml(t.title)}</p>
             <p class="text-[10px] text-sky-400">⏰ ${escapeHtml(t.scheduled_time)}</p>
           </div>
-          <button onclick="deleteTask(${Number(t.id)})" class="text-rose-400 text-xs px-2 py-1 hover:bg-rose-500/20 rounded">✕</button>
+          <button onclick="deleteTask('${escapeHtml(String(t.id))}')" class="text-rose-400 text-xs px-2 py-1 hover:bg-rose-500/20 rounded">✕</button>
         </div>
       `).join("");
     }
 
     function deleteTask(id) {
-      if (window.AndroidNova && window.AndroidNova.cancelNativeAlarm) {
-        window.AndroidNova.cancelNativeAlarm(id);
+      const strId = String(id);
+      if (window.reminderClient && typeof window.reminderClient.cancelNativeAlarm === 'function') {
+        window.reminderClient.cancelNativeAlarm(strId);
+      } else if (window.AndroidNova && window.AndroidNova.cancelNativeAlarm) {
+        window.AndroidNova.cancelNativeAlarm(strId);
       }
-      localTasks = localTasks.filter(t => t.id !== id);
+      localTasks = localTasks.filter(t => String(t.id) !== strId);
       saveTasks();
       updateTaskListUI();
     }
 
     function clearAllTasks() {
       localTasks.forEach(t => {
-        if (window.AndroidNova && window.AndroidNova.cancelNativeAlarm) {
-          window.AndroidNova.cancelNativeAlarm(t.id);
+        const strId = String(t.id);
+        if (window.reminderClient && typeof window.reminderClient.cancelNativeAlarm === 'function') {
+          window.reminderClient.cancelNativeAlarm(strId);
+        } else if (window.AndroidNova && window.AndroidNova.cancelNativeAlarm) {
+          window.AndroidNova.cancelNativeAlarm(strId);
         }
       });
       localTasks = [];
@@ -1736,9 +1840,13 @@ QUY TẮC PHẢN HỒI:
       updateTaskListUI();
     }
 
-    // Nhận kích hoạt từ thông báo Android khi mở app từ chuông báo thức
-    window.handleNativeAlarmTrigger = function(title) {
-      console.log("Triggered from Native Alarm Notification:", title);
+    // Nhận kích hoạt từ thông báo Android khi mở app từ chuông báo thức (Safe Native -> WebView handoff)
+    window.handleNativeAlarmTrigger = function(title, sessionId) {
+      console.log("Triggered from Native Alarm Notification:", title, "SessionId:", sessionId);
+      if (sessionId && window.AndroidNova && typeof window.AndroidNova.claimAlarmSession === 'function') {
+        const claimResult = window.AndroidNova.claimAlarmSession(sessionId);
+        console.log("Claimed native alarm session:", sessionId, "Result:", claimResult);
+      }
       triggerProactiveAlarm({ title: title, scheduled_time: formatDateTime(new Date()) });
     };
 
@@ -1915,6 +2023,7 @@ QUY TẮC PHẢN HỒI:
       isProcessingUtterance = true;
       stopListening();
       const cleanText = text.trim();
+      const currentTurnId = (turnController) ? turnController.startNewTurn(cleanText) : ('turn_' + Date.now());
       const wake = detectWakeWord(cleanText);
       const commandText = (wake && wake.matched && wake.command) ? wake.command : cleanText;
 
@@ -2011,20 +2120,24 @@ QUY TẮC PHẢN HỒI:
         // R08 & P0: Đồng bộ nhắc việc/báo thức sang phần cứng Android với Native ACK
         if (result && result.action && (result.action.action === "schedule_tasks" || result.action.action === "schedule_task" || result.action.type === "schedule_tasks")) {
           if (reminderClient && typeof reminderClient.processScheduleAction === 'function') {
-            reminderClient.processScheduleAction(result.action).then(ackRes => {
-              if (ackRes.exactGranted === false) {
+            try {
+              const ackRes = await reminderClient.processScheduleAction(result.action);
+              if (ackRes && ackRes.confirmedSpeech) {
+                result.reply = ackRes.confirmedSpeech;
+              }
+              if (ackRes && ackRes.exactGranted === false) {
                 console.warn("[Reminder] Exact alarm permission chưa cấp");
                 const alertBanner = document.getElementById("statusLabel");
                 if (alertBanner) alertBanner.innerText = "Đã lưu lời nhắc. Cần cấp quyền Exact Alarm để reo đúng giờ!";
               }
-            }).catch(e => console.error("[Reminder] processScheduleAction error:", e));
-          }
-
-          const tasks = result.action.tasks || (result.action.task ? [result.action.task] : []);
-          for (const t of tasks) {
-            const timeStr = t.scheduled_time || parseNaturalTime(t.scheduled_time || t.time);
-            if (timeStr) {
-              addLocalTask(t.title || "Nhắc việc", timeStr, t.app_to_open || "");
+              if (ackRes && Array.isArray(ackRes.scheduledTasks)) {
+                for (const st of ackRes.scheduledTasks) {
+                  addLocalTask(st.title || "Nhắc việc", st.scheduled_time, st.app_to_open || "", st.reminder_id);
+                }
+              }
+            } catch (e) {
+              console.error("[Reminder] processScheduleAction error:", e);
+              result.reply = "Xin lỗi cậu, tớ chưa thể lưu lời nhắc do hệ thống Android từ chối cấp quyền.";
             }
           }
         }
@@ -2128,6 +2241,10 @@ QUY TẮC PHẢN HỒI:
           clearTimeout(window._nativeTTSSafetyTimer);
           window._nativeTTSSafetyTimer = null;
         }
+        if (turnController) {
+          turnController.cancelCurrentTurn("user_interrupted_orb");
+        }
+        activeAudioRequests.clear();
         window._nativeTTSFinishedCallback = null;
         window.onNovaSpeechStarted = null;
         window.onNativeAudioFailed = null;
@@ -2242,6 +2359,10 @@ QUY TẮC PHẢN HỒI:
       inConversationMode = true;
       const convBadge = document.getElementById("convBadge");
       if (convBadge) convBadge.classList.remove("hidden");
+
+      if (convStateMachine && !convStateMachine.is("LISTENING")) {
+        convStateMachine.transition("LISTENING");
+      }
 
       accumulatedSpeech = "";
       currentRecognizedText = "";

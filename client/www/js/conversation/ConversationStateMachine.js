@@ -92,6 +92,11 @@ class ConversationStateMachine {
   }
 }
 
+if (typeof window !== 'undefined') {
+  window.ConversationState = ConversationState;
+  window.ConversationStateMachine = ConversationStateMachine;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     ConversationState,

@@ -143,6 +143,10 @@ class TurnController {
   }
 }
 
+if (typeof window !== 'undefined') {
+  window.TurnController = TurnController;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     TurnController
