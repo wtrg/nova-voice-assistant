@@ -56,9 +56,17 @@ SCHEDULE_TOOLS = [{
     }]
 }]
 
+try:
+    from zoneinfo import ZoneInfo
+    VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+except Exception:
+    VN_TZ = None
+
 def parse_time_str(time_str: str) -> str:
-    """Chuyển đổi chuỗi thời gian tự nhiên thành YYYY-MM-DD HH:MM"""
-    now = datetime.now()
+    """Chuyển đổi chuỗi thời gian tự nhiên thành YYYY-MM-DD HH:MM theo múi giờ Việt Nam"""
+    if not time_str or not time_str.strip():
+        return ""
+    now = datetime.now(VN_TZ) if VN_TZ else datetime.now()
     clean = time_str.strip().lower()
     
     # 1. Dạng tương đối: '+10m', '15 phút', 'sau 30p'
@@ -171,22 +179,51 @@ class AssistantAgent:
                             tasks_list = args.get("tasks", [])
                             scheduled_summaries = []
                             created_task_ids = []
+                            detailed_tasks = []
 
                             for t in tasks_list:
                                 t_title = t.get("title", "Nhiệm vụ")
-                                t_raw_time = t.get("scheduled_time", "10m")
+                                t_raw_time = t.get("scheduled_time", "")
                                 t_app = t.get("app_to_open", "")
                                 formatted_time = parse_time_str(t_raw_time)
                                 
+                                if not formatted_time:
+                                    # P0 BUG FIX: Nếu không parse được thời gian, không tạo rác trong DB
+                                    reply_text = f"Tớ nghe rõ là cậu muốn nhắc việc '{t_title}', nhưng chưa rõ là vào lúc nào. Cậu muốn tớ nhắc lúc mấy giờ (ví dụ 14h30 hoặc sau 15 phút)?"
+                                    action_result = {
+                                        "type": "schedule_requires_clarification",
+                                        "action": "schedule_requires_clarification",
+                                        "task_title": t_title,
+                                        "reason": "missing_or_unparsed_time"
+                                    }
+                                    return reply_text, action_result
+
                                 task_id = add_task(title=t_title, scheduled_time=formatted_time, app_to_open=t_app)
                                 created_task_ids.append(task_id)
                                 time_display = formatted_time.split(" ")[-1]
                                 scheduled_summaries.append(f"{t_title} lúc {time_display}")
 
+                                try:
+                                    dt = datetime.strptime(formatted_time, "%Y-%m-%d %H:%M")
+                                    epoch_ms = int(dt.timestamp() * 1000)
+                                except Exception:
+                                    epoch_ms = None
+
+                                detailed_tasks.append({
+                                    "task_id": task_id,
+                                    "title": t_title,
+                                    "scheduled_time": formatted_time,
+                                    "scheduled_at_epoch_ms": epoch_ms,
+                                    "timezone": "Asia/Ho_Chi_Minh",
+                                    "app_to_open": t_app
+                                })
+
                             action_result = {
+                                "type": "schedule_tasks",
                                 "action": "schedule_tasks",
                                 "task_ids": created_task_ids,
-                                "summary": scheduled_summaries
+                                "summary": scheduled_summaries,
+                                "tasks": detailed_tasks
                             }
 
                             if scheduled_summaries:

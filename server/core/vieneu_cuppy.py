@@ -20,7 +20,14 @@ if sys.platform == "win32":
 logger = logging.getLogger("CuppyNeuralTTS")
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-MASTER_VOICES_PATH = Path(r"C:\Users\Lenovo\Documents\Codex\2026-08-29\x20\work\wtstudio-source\extended_voices_master.json")
+preset_env = os.getenv("CUPPY_VOICE_PRESET_PATH")
+if preset_env:
+    MASTER_VOICES_PATH = Path(preset_env)
+else:
+    p1 = ROOT_DIR / "data" / "extended_voices_master.json"
+    p2 = Path(r"C:\Users\Lenovo\Documents\Codex\2026-08-29\x20\work\wtstudio-source\extended_voices_master.json")
+    MASTER_VOICES_PATH = p1 if p1.exists() else p2
+
 CACHE_DIR = ROOT_DIR / "data" / "cuppy_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -102,5 +109,14 @@ class CuppyNeuralTTS:
         if p and p.exists():
             return p.read_bytes()
         return b""
+
+    def get_health(self) -> dict:
+        return {
+            "status": "ok" if self.tts else "degraded",
+            "model_loaded": self.tts is not None,
+            "voice_loaded": (self.tts is not None and hasattr(self.tts, "_preset_voices") and "cuppy" in self.tts._preset_voices),
+            "cache_writable": CACHE_DIR.exists() and os.access(str(CACHE_DIR), os.W_OK),
+            "warm": self.tts is not None
+        }
 
 cuppy_engine = CuppyNeuralTTS.get_instance()

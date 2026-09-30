@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import uuid
 import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -128,6 +129,17 @@ class DialogueRequest(BaseModel):
 async def health():
     return {"status": "ok", "service": "nova_voice_assistant"}
 
+@app.get("/health/voice")
+async def health_voice():
+    """Kiểm tra sức khỏe động cơ giọng nói Cuppy Neural TTS"""
+    try:
+        from core.vieneu_cuppy import cuppy_engine
+        h = cuppy_engine.get_health()
+        status_code = 200 if h.get("model_loaded") else 503
+        return JSONResponse(status_code=status_code, content=h)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "error": str(e), "model_loaded": False})
+
 @app.get("/api/cuppy-tts")
 async def get_cuppy_tts(text: str):
     """API sinh giọng nói Cuppy siêu tốc bằng Vieneu model v3turbo"""
@@ -208,13 +220,14 @@ async def get_proactive_prompt(req: ProactiveRequest):
 @app.post("/api/dialogue")
 async def handle_dialogue(req: DialogueRequest):
     """
-    Xử lý đàm thoại 2 chiều thông minh (F-07: Cách ly phiên theo session_id):
+    Xử lý đàm thoại 2 chiều thông minh (F-07: Cách ly phiên theo session_id, P0: Chuẩn hóa turn_id và action contract):
     1. Kiểm tra từ khóa dừng: 'kết thúc', 'thôi', 'tạm biệt' -> Tắt mic
     2. Nếu người dùng nói 'có', 'ừ' sau lời nhắc -> Bật đàm thoại liên tục
     3. Tự động giữ mở mic sau mỗi câu trả lời nếu đang trong phiên
     """
     clean_text = req.user_text.strip()
     session_id = req.session_id or "default"
+    turn_id = str(uuid.uuid4())
     
     # 1. Kiểm tra người dùng muốn kết thúc cuộc trò chuyện
     if assistant_agent.is_exit_phrase(clean_text):
@@ -222,9 +235,10 @@ async def handle_dialogue(req: DialogueRequest):
         reply = "Okela, cậu tập trung làm việc nha! Tớ tắt mic đây, khi nào cần cứ gọi Hey Nova nhé!"
         audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
         return {
+            "turn_id": turn_id,
             "reply": reply,
             "audio_url": f"/audio/{Path(audio_path).name}" if audio_path else "",
-            "action": "exit_conversation",
+            "action": {"type": "exit_conversation", "action": "exit_conversation"},
             "continue_listening": False
         }
         
@@ -233,9 +247,10 @@ async def handle_dialogue(req: DialogueRequest):
         reply = "Okela, buôn chuyện tí nào! Cậu đang cảm thấy thế nào rồi?"
         audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
         return {
+            "turn_id": turn_id,
             "reply": reply,
             "audio_url": f"/audio/{Path(audio_path).name}" if audio_path else "",
-            "action": "start_conversation",
+            "action": {"type": "start_conversation", "action": "start_conversation"},
             "continue_listening": True
         }
         
@@ -245,16 +260,21 @@ async def handle_dialogue(req: DialogueRequest):
         error_code = action.get("error_code", "upstream_error")
         status_code = 429 if error_code == "quota_exceeded" else 503
         return JSONResponse(status_code=status_code, content={
+            "turn_id": turn_id,
             "error": reply,
             "error_code": error_code,
             "retryable": bool(action.get("retryable", False))
         })
     audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
     
+    # P0 FIX: Bảo toàn nguyên vẹn toàn bộ payload action (tasks, task_ids, summary), không ép thành chuỗi trơ trụi!
+    formatted_action = action if isinstance(action, dict) else {"type": "chat", "action": action or "chat"}
+    
     return {
+        "turn_id": turn_id,
         "reply": reply,
         "audio_url": f"/audio/{Path(audio_path).name}" if audio_path else "",
-        "action": action.get("action", "chat") if isinstance(action, dict) else "chat",
+        "action": formatted_action,
         "continue_listening": req.in_conversation
     }
 
@@ -262,20 +282,24 @@ async def handle_dialogue(req: DialogueRequest):
 async def chat_text(req: ChatRequest):
     """Nhận câu nói dạng text từ điện thoại, sinh câu trả lời bạn thân & file giọng Cuppy (F-07: session-isolated)"""
     session_id = req.session_id or "default"
+    turn_id = str(uuid.uuid4())
     reply, action = await run_in_threadpool(assistant_agent.process_command, req.text, session_id=session_id)
     if isinstance(action, dict) and action.get("action") == "upstream_error":
         error_code = action.get("error_code", "upstream_error")
         status_code = 429 if error_code == "quota_exceeded" else 503
         return JSONResponse(status_code=status_code, content={
+            "turn_id": turn_id,
             "error": reply,
             "error_code": error_code,
             "retryable": bool(action.get("retryable", False))
         })
     audio_path = await run_in_threadpool(tts_engine.synthesize, reply)
     audio_url = f"/audio/{Path(audio_path).name}" if audio_path else ""
+    formatted_action = action if isinstance(action, dict) else {"type": "chat", "action": action or "chat"}
     return {
+        "turn_id": turn_id,
         "reply": reply,
-        "action": action,
+        "action": formatted_action,
         "audio_url": audio_url
     }
 

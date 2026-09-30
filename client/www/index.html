@@ -37,6 +37,11 @@
     .wave-active .w-bar:nth-child(4) { animation: wave-bar 0.7s infinite 0.15s; }
     .wave-active .w-bar:nth-child(5) { animation: wave-bar 0.7s infinite 0.25s; }
   </style>
+  <script src="js/voice/prebuiltAudioMap.js"></script>
+  <script src="js/conversation/ConversationStateMachine.js"></script>
+  <script src="js/conversation/TurnController.js"></script>
+  <script src="js/reminders/ReminderClient.js"></script>
+  <script src="js/diagnostics/DiagnosticsPanel.js"></script>
 </head>
 <body class="bg-[#090d16] text-white font-sans antialiased min-h-screen flex flex-col justify-between p-4 select-none">
 
@@ -319,6 +324,12 @@
       // làm mặc định, còn tunnel chỉ dùng khi người dùng nhập URL đang hoạt động.
       return DEFAULT_LOCAL_URL;
     }
+
+    // Khởi tạo các Controller chuẩn hóa độ tin cậy và correlation ID (P0 / P1)
+    const convStateMachine = (typeof ConversationStateMachine !== 'undefined') ? new ConversationStateMachine() : null;
+    const turnController = (typeof TurnController !== 'undefined') ? new TurnController(convStateMachine) : null;
+    const reminderClient = (typeof ReminderClient !== 'undefined') ? new ReminderClient() : null;
+    const diagnosticsPanel = (typeof DiagnosticsPanel !== 'undefined') ? new DiagnosticsPanel(getApiBaseUrl()) : null;
 
     // Helper an toàn đọc JSON từ LocalStorage (F-11: ngăn chặn JSON hỏng làm chết app)
     function safeGetJson(key, fallback = []) {
@@ -952,26 +963,14 @@
       }
     }
 
-    // Ánh xạ CHÍNH XÁC câu thoại hệ thống cố định tới file âm thanh Cuppy gốc trong APK (0ms latency, chất lượng phòng thu)
-    function getPrebuiltCuppyAudio(text) {
-      const clean = (text || "").toLowerCase().replace(/[*#_`~]/g, "").replace(/\s+/g, " ").trim();
-
-      if (clean.includes("đang mở youtube")) return "assets/cuppy_open_youtube.wav";
-      if (clean.includes("đang mở zalo")) return "assets/cuppy_open_zalo.wav";
-      if (clean.includes("đang mở facebook")) return "assets/cuppy_open_facebook.wav";
-      if (clean.includes("đang mở tiktok")) return "assets/cuppy_open_tiktok.wav";
-      if (clean.includes("đang mở camera")) return "assets/cuppy_open_camera.wav";
-      if (clean.includes("đang mở bản đồ") || clean.includes("đang mở google maps")) return "assets/cuppy_open_maps.wav";
-      if (clean.includes("chưa tìm thấy ứng dụng")) return "assets/cuppy_app_not_found.wav";
-      if (clean.includes("tắt mic đây") || clean.includes("tập trung làm việc nha")) return "assets/cuppy_goodbye.wav";
-      if (clean.includes("buôn chuyện tí nào") || clean.includes("buôn chuyện tí")) return "assets/cuppy_lets_chat.wav";
-      if (clean.includes("tớ là nova đây, tớ đang lắng nghe") || clean.includes("tớ là nova đây")) return "assets/cuppy_hello.wav";
-      if (clean.includes("trợ lý bạn thân của cậu đây")) return "assets/cuppy_welcome.wav";
-      if (clean.includes("chốt đơn luôn") || clean.includes("đã ghi nhớ lịch hẹn")) return "assets/cuppy_ok.wav";
-      if (clean.includes("mạng hơi chập chờn")) return "assets/cuppy_network_error.wav";
-      if (clean.includes("đến giờ làm việc rồi kìa") || clean.includes("vào bàn làm ngay thôi nào")) return "assets/cuppy_alarm.wav";
-      if (clean.includes("hãy hít một hơi thật sâu")) return "assets/cuppy-vi.wav";
-
+    // P0 FIX: Ánh xạ chuẩn xác câu thoại hệ thống cố định bằng resolveVoicePlayback
+    // Tuyệt đối không dùng substring .includes(...) đè lên câu trả lời AI!
+    function getPrebuiltCuppyAudio(text, isAiResponse = false) {
+      if (isAiResponse) return null;
+      if (typeof resolveVoicePlayback === 'function') {
+        const plan = resolveVoicePlayback({ text, isAiResponse: false, mode: 'static' });
+        if (plan && plan.mode === 'prebuilt') return plan.path;
+      }
       return null;
     }
 
@@ -1270,7 +1269,8 @@
       };
 
       // 1. NẾU LÀ CÂU LỆNH HỆ THỐNG CỐ ĐỊNH 100% CHÍNH XÁC: Ưu tiên file giọng gốc phòng thu
-      const prebuiltAudio = getPrebuiltCuppyAudio(cleanText);
+      // P0 FIX: Nếu là câu thoại AI (isAiResponse = true), tuyệt đối không bao giờ match đè prebuilt WAV!
+      const prebuiltAudio = getPrebuiltCuppyAudio(cleanText, isAiResponse);
       if (prebuiltAudio) {
         console.log("Playing Prebuilt Cuppy Voice:", prebuiltAudio);
         if (window.AndroidNova && typeof window.AndroidNova.playAudioUrl === 'function') {
@@ -2008,11 +2008,21 @@ QUY TẮC PHẢN HỒI:
       try {
         const result = await callGeminiDirect(commandText || cleanText);
 
-        // R08: Đồng bộ nhắc việc/báo thức sang phần cứng Android nếu backend hoặc Gemini sinh action đặt lịch
-        if (result && result.action && (result.action.action === "schedule_tasks" || result.action.action === "schedule_task")) {
+        // R08 & P0: Đồng bộ nhắc việc/báo thức sang phần cứng Android với Native ACK
+        if (result && result.action && (result.action.action === "schedule_tasks" || result.action.action === "schedule_task" || result.action.type === "schedule_tasks")) {
+          if (reminderClient && typeof reminderClient.processScheduleAction === 'function') {
+            reminderClient.processScheduleAction(result.action).then(ackRes => {
+              if (ackRes.exactGranted === false) {
+                console.warn("[Reminder] Exact alarm permission chưa cấp");
+                const alertBanner = document.getElementById("statusLabel");
+                if (alertBanner) alertBanner.innerText = "Đã lưu lời nhắc. Cần cấp quyền Exact Alarm để reo đúng giờ!";
+              }
+            }).catch(e => console.error("[Reminder] processScheduleAction error:", e));
+          }
+
           const tasks = result.action.tasks || (result.action.task ? [result.action.task] : []);
           for (const t of tasks) {
-            const timeStr = parseNaturalTime(t.scheduled_time || t.time);
+            const timeStr = t.scheduled_time || parseNaturalTime(t.scheduled_time || t.time);
             if (timeStr) {
               addLocalTask(t.title || "Nhắc việc", timeStr, t.app_to_open || "");
             }

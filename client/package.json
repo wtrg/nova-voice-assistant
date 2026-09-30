@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "python test_router.py"
+    "test": "node tests/test_voice_mapping.js && node tests/test_turn_state_machine.js && node tests/test_reminder_contract.js"
   },
   "keywords": [],
   "author": "",

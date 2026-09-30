@@ -26,7 +26,9 @@ import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
+import org.json.JSONObject;
 import android.content.ComponentName;
 import android.content.pm.ResolveInfo;
 import android.speech.RecognitionListener;
@@ -346,16 +348,101 @@ public class MainActivity extends BridgeActivity {
                         return launchTargetApp(appName, query);
                     }
 
-                    // Đặt chuông báo thức phần cứng qua AlarmManager khi tắt app (F-08, F-09)
+                    // Đặt chuông báo thức phần cứng qua AlarmManager khi tắt app (F-08, F-09, Plan Phase 4 & 5)
                     @JavascriptInterface
-                    public void scheduleNativeAlarm(int id, String title, long timestampMillis) {
-                        scheduleAlarmDirect(MainActivity.this, id, title, timestampMillis);
+                    public String scheduleNativeAlarm(int id, String title, long timestampMillis) {
+                        boolean exact = canScheduleExactAlarms();
+                        boolean success = scheduleAlarmDirect(MainActivity.this, id, title, timestampMillis);
+                        return "{\"ok\":" + success + ",\"alarm_id\":" + id + ",\"exact\":" + exact + "}";
+                    }
+
+                    @JavascriptInterface
+                    public String scheduleNativeAlarm(String taskJson) {
+                        try {
+                            JSONObject obj = new JSONObject(taskJson);
+                            int id = obj.optInt("task_id", (int)(System.currentTimeMillis() % 1000000));
+                            String title = obj.optString("title", "Lịch hẹn");
+                            long timestampMillis = obj.optLong("scheduled_at_epoch_ms", 0);
+                            if (timestampMillis <= 0) {
+                                String timeStr = obj.optString("scheduled_time", "");
+                                if (!timeStr.isEmpty()) {
+                                    try {
+                                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+                                        java.util.Date d = sdf.parse(timeStr);
+                                        if (d != null) timestampMillis = d.getTime();
+                                    } catch (Exception ignored) {}
+                                }
+                            }
+                            return scheduleNativeAlarm(id, title, timestampMillis);
+                        } catch (Exception e) {
+                            return "{\"ok\":false,\"error\":\"" + escapeForJs(e.getMessage()) + "\"}";
+                        }
                     }
 
                     // Hủy chuông báo thức (F-09)
                     @JavascriptInterface
                     public void cancelNativeAlarm(int id) {
                         cancelAlarmDirect(MainActivity.this, id);
+                    }
+
+                    // Kiểm tra và yêu cầu quyền Alarm / Notification cho Diagnostics & Reliability Plan
+                    @JavascriptInterface
+                    public boolean canScheduleExactAlarms() {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+                            return am != null && am.canScheduleExactAlarms();
+                        }
+                        return true;
+                    }
+
+                    @JavascriptInterface
+                    public void openExactAlarmSettings() {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            try {
+                                Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                                intent.setData(Uri.parse("package:" + getPackageName()));
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                startActivity(intent);
+                            } catch (Exception e) {
+                                try {
+                                    Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                                    intent.setData(Uri.parse("package:" + getPackageName()));
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                    startActivity(intent);
+                                } catch (Exception ignored) {}
+                            }
+                        }
+                    }
+
+                    @JavascriptInterface
+                    public boolean areNotificationsEnabled() {
+                        return NotificationManagerCompat.from(MainActivity.this).areNotificationsEnabled();
+                    }
+
+                    @JavascriptInterface
+                    public void openNotificationSettings() {
+                        try {
+                            Intent intent = new Intent();
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                intent.setAction(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                                intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+                            } else {
+                                intent.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                                intent.setData(Uri.parse("package:" + getPackageName()));
+                            }
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(intent);
+                        } catch (Exception ignored) {}
+                    }
+
+                    @JavascriptInterface
+                    public void stopAlarm() {
+                        NovaAlarmService.stopAlarm(MainActivity.this);
+                    }
+
+                    @JavascriptInterface
+                    public boolean isAlarmRinging() {
+                        return NovaAlarmService.isAlarmRinging;
                     }
 
                     // Tùy chỉnh cao độ & tốc độ giọng nói ngay trong app
@@ -435,6 +522,7 @@ public class MainActivity extends BridgeActivity {
 
     private void checkAlarmIntent(Intent intent) {
         if (intent != null && intent.getBooleanExtra("auto_alarm", false)) {
+            NovaAlarmService.stopAlarm(MainActivity.this);
             String title = intent.getStringExtra("task_title");
             if (title == null) title = "Làm việc & Học tập";
             intent.removeExtra("auto_alarm");
@@ -863,6 +951,9 @@ public class MainActivity extends BridgeActivity {
     private void stopAudioInternal() {
         currentAudioRequestId.incrementAndGet();
         try {
+            NovaAlarmService.stopAlarm(MainActivity.this);
+        } catch (Exception ignored) {}
+        try {
             if (mediaPlayer != null) {
                 if (mediaPlayer.isPlaying()) {
                     mediaPlayer.stop();
@@ -1157,94 +1248,72 @@ public class MainActivity extends BridgeActivity {
 
                 mediaPlayer.prepareAsync();
             } else if (url.startsWith("http://") || url.startsWith("https://")) {
-                // 2. Tải luồng âm thanh qua HttpURLConnection với Header chuẩn, lưu vào cache rồi phát mượt mà
-                new Thread(new Runnable() {
+                // 2. Progressive Streaming trực tiếp qua MediaPlayer không chặn đợi tải toàn bộ file
+                mediaPlayer = new MediaPlayer();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    mediaPlayer.setAudioAttributes(
+                        new AudioAttributes.Builder()
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .build()
+                    );
+                } else {
+                    mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+                }
+                mediaPlayer.setVolume(1.0f, 1.0f);
+
+                Map<String, String> headers = new HashMap<>();
+                headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                mediaPlayer.setDataSource(MainActivity.this, Uri.parse(url), headers);
+
+                mediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
                     @Override
-                    public void run() {
-                        if (reqId != currentAudioRequestId.get()) return;
-                        HttpURLConnection conn = null;
-                        InputStream is = null;
-                        FileOutputStream fos = null;
-                        final File tempAudio = new File(getCacheDir(), "nova_tts_" + System.currentTimeMillis() + ".mp3");
+                    public void onPrepared(MediaPlayer mp) {
+                        if (reqId != currentAudioRequestId.get()) {
+                            stopAudioInternal();
+                            return;
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            try {
+                                PlaybackParams params = mp.getPlaybackParams();
+                                if (params == null) {
+                                    params = new PlaybackParams();
+                                }
+                                params.setSpeed(1.10f);
+                                mp.setPlaybackParams(params);
+                            } catch (Exception ignored) {}
+                        }
+                        runOnJs("if (window.onNovaSpeechStarted) window.onNovaSpeechStarted();");
                         try {
-                            URL u = new URL(url);
-                            conn = (HttpURLConnection) u.openConnection();
-                            conn.setConnectTimeout(8000);
-                            // Lần suy luận Cuppy đầu sau khi khởi động server có thể vượt 12 giây.
-                            conn.setReadTimeout(30000);
-                            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-                            conn.setRequestProperty("Referer", "https://translate.google.com/");
-                            conn.setInstanceFollowRedirects(true);
-                            int responseCode = conn.getResponseCode();
-                            if (reqId != currentAudioRequestId.get()) return;
-
-                            if (responseCode == 200) {
-                                is = conn.getInputStream();
-                                fos = new FileOutputStream(tempAudio);
-                                byte[] buf = new byte[4096];
-                                int len;
-                                while ((len = is.read(buf)) != -1) {
-                                    if (reqId != currentAudioRequestId.get()) {
-                                        try { fos.close(); } catch(Exception ignored) {}
-                                        fos = null;
-                                        try { is.close(); } catch(Exception ignored) {}
-                                        is = null;
-                                        tempAudio.delete();
-                                        return;
-                                    }
-                                    fos.write(buf, 0, len);
-                                }
-                                fos.flush();
-                                fos.close();
-                                fos = null;
-                                is.close();
-                                is = null;
-
-                                if (reqId != currentAudioRequestId.get()) {
-                                    tempAudio.delete();
-                                    return;
-                                }
-
-                                runOnUiThread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        if (reqId != currentAudioRequestId.get()) {
-                                            tempAudio.delete();
-                                            return;
-                                        }
-                                        playLocalFileInternal(tempAudio.getAbsolutePath());
-                                    }
-                                });
-                            } else {
-                                if (reqId != currentAudioRequestId.get()) return;
-                                runOnUiThread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        if (reqId != currentAudioRequestId.get()) return;
-                                        runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
-                                    }
-                                });
-                            }
+                            mp.start();
                         } catch (Exception ex) {
-                            if (reqId != currentAudioRequestId.get()) {
-                                tempAudio.delete();
-                                return;
-                            }
                             ex.printStackTrace();
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    if (reqId != currentAudioRequestId.get()) return;
-                                    runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
-                                }
-                            });
-                        } finally {
-                            try { if (is != null) is.close(); } catch(Exception ignored) {}
-                            try { if (fos != null) fos.close(); } catch(Exception ignored) {}
-                            try { if (conn != null) conn.disconnect(); } catch(Exception ignored) {}
+                            stopAudioInternal();
+                            runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
                         }
                     }
-                }).start();
+                });
+
+                mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                    @Override
+                    public void onCompletion(MediaPlayer mp) {
+                        if (reqId != currentAudioRequestId.get()) return;
+                        stopAudioInternal();
+                        runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                    }
+                });
+
+                mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                    @Override
+                    public boolean onError(MediaPlayer mp, int what, int extra) {
+                        if (reqId != currentAudioRequestId.get()) return true;
+                        stopAudioInternal();
+                        runOnJs("if (window.onNativeAudioFailed) window.onNativeAudioFailed(); else if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                        return true;
+                    }
+                });
+
+                mediaPlayer.prepareAsync();
             } else {
                 // 3. File cục bộ trên máy
                 playLocalFileInternal(url);

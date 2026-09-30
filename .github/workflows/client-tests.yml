@@ -1,0 +1,24 @@
+name: Client State Machine & Parity Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Run Client State Machine & Parity Test Suite
+      working-directory: client
+      run: |
+        npm test
