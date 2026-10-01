@@ -24,9 +24,7 @@ preset_env = os.getenv("CUPPY_VOICE_PRESET_PATH")
 if preset_env:
     MASTER_VOICES_PATH = Path(preset_env)
 else:
-    p1 = ROOT_DIR / "data" / "extended_voices_master.json"
-    p2 = Path(r"C:\Users\Lenovo\Documents\Codex\2026-08-29\x20\work\wtstudio-source\extended_voices_master.json")
-    MASTER_VOICES_PATH = p1 if p1.exists() else p2
+    MASTER_VOICES_PATH = ROOT_DIR / "data" / "extended_voices_master.json"
 
 CACHE_DIR = ROOT_DIR / "data" / "cuppy_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)

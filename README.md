@@ -124,9 +124,9 @@ uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 ### 2. Biên Dịch Ứng Dụng Android (Client)
 
 #### Yêu cầu:
-- Node.js 18+ & NPM
+- Node.js 22+ & NPM
 - Android Studio / Android SDK (API 34+)
-- JDK 17+
+- JDK 21+
 
 ```bash
 # 1. Đi vào thư mục client
