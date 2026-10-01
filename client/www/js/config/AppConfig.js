@@ -16,7 +16,7 @@
     buildSha: "v2.0.0",
     featureHotword: false,
     featureDefaultAssistant: true,
-    ttsMode: "cuppy",
+    ttsMode: "xuan_tien",
 
     init: function() {
       // 1. Đồng bộ cấu hình từ Native Android Bridge nếu đang chạy trong APK

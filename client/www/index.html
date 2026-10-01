@@ -1030,38 +1030,38 @@
     document.addEventListener("click", unlockAudioContext, { once: true });
     document.addEventListener("touchstart", unlockAudioContext, { once: true });
 
-    // Phát file studio cuppy-vi.wav tích hợp sẵn trong APK
-    function playStudioCuppyVoice() {
+    // Phát file mẫu giọng AI Xuân Tiên (VieNeu v3 Nano)
+    function playStudioXuanTienVoice() {
       const orb = document.getElementById("orbContainer");
       const wave = document.getElementById("waveBox");
-      orb.className = "w-36 h-36 rounded-full speaking-orb cursor-pointer transition-all duration-300 flex items-center justify-center relative shadow-2xl";
-      wave.classList.add("wave-active");
-      document.getElementById("novaBubble").innerText = '"Hãy hít một hơi thật sâu, mỉm cười, và sẵn sàng cho mọi thử thách phía trước nhé..." (Giọng Cuppy Gốc)';
+      if (typeof NovaVisualState !== "undefined") NovaVisualState.set("speaking");
+      if (orb) orb.className = "w-36 h-36 rounded-full speaking-orb cursor-pointer transition-all duration-300 flex items-center justify-center relative shadow-2xl";
+      if (wave) wave.classList.add("wave-active");
+      const sampleText = "Xin chào! Mình là Xuân Tiên, trợ lý ảo giọng nói của bạn. Rất vui được đồng hành cùng bạn!";
+      document.getElementById("novaBubble").innerText = `"${sampleText}" (Giọng Xuân Tiên VieNeu AI)`;
 
-      const audio = new Audio("assets/cuppy-vi.wav");
+      const audio = new Audio("assets/sample_xuantien.wav");
       currentTTSAudio = audio;
-      audio.onended = () => {
-        orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
-        wave.classList.remove("wave-active");
+      const resetVisual = () => {
+        if (typeof NovaVisualState !== "undefined") NovaVisualState.set("idle");
+        if (orb) orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+        if (wave) wave.classList.remove("wave-active");
       };
+      audio.onended = resetVisual;
       audio.onerror = () => {
-        const mp3Fallback = new Audio("assets/audit_saydi-cuppy-vi.mp3");
-        mp3Fallback.onended = () => {
-          orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
-          wave.classList.remove("wave-active");
+        const streamUrl = `${getApiBaseUrl()}/api/cuppy-tts?text=${encodeURIComponent(sampleText)}`;
+        const fbAudio = new Audio(streamUrl);
+        fbAudio.onended = resetVisual;
+        fbAudio.onerror = () => {
+          fallbackSpeechSynthesis(sampleText, resetVisual);
         };
-        mp3Fallback.onerror = () => {
-          fallbackSpeechSynthesis("Hãy hít một hơi thật sâu, mỉm cười, và sẵn sàng cho mọi thử thách phía trước nhé.", () => {
-            orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
-            wave.classList.remove("wave-active");
-          });
-        };
-        mp3Fallback.play().catch(e => console.warn(e));
+        fbAudio.play().catch(resetVisual);
       };
       audio.play().catch(e => {
         console.warn("Cần chạm màn hình để phát:", e);
       });
     }
+    const playStudioCuppyVoice = playStudioXuanTienVoice;
 
     // Hàm phát stream âm thanh qua HTML5 Audio với timeout an toàn
     // Hàm phát stream âm thanh qua HTML5 Audio với timeout tùy biến và callback onStart tức thì
@@ -2613,23 +2613,25 @@
       stopListening();
       const orb = document.getElementById("orbContainer");
       const wave = document.getElementById("waveBox");
-      orb.className = "w-36 h-36 rounded-full speaking-orb cursor-pointer transition-all duration-300 flex items-center justify-center relative shadow-2xl";
-      wave.classList.add("wave-active");
+      if (typeof NovaVisualState !== "undefined") NovaVisualState.set("speaking");
+      if (orb) orb.className = "w-36 h-36 rounded-full speaking-orb cursor-pointer transition-all duration-300 flex items-center justify-center relative shadow-2xl";
+      if (wave) wave.classList.add("wave-active");
 
-      const audio = new Audio("assets/cuppy-vi.wav");
+      const audio = new Audio("assets/sample_xuantien.wav");
       let finished = false;
       const done = () => {
         if (finished) return;
         finished = true;
         isSpeakingNow = false;
-        orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
-        wave.classList.remove("wave-active");
+        if (typeof NovaVisualState !== "undefined") NovaVisualState.set("idle");
+        if (orb) orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
+        if (wave) wave.classList.remove("wave-active");
         if (callback) callback();
       };
 
       audio.onended = done;
       audio.onerror = () => {
-        const fb = new Audio("assets/audit_saydi-cuppy-vi.mp3");
+        const fb = new Audio("assets/cuppy-vi.wav");
         fb.onended = done;
         fb.onerror = done;
         fb.play().catch(done);

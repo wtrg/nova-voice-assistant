@@ -3,7 +3,7 @@
  * 
  * P0 FIX: Tuyệt đối không match bằng substring .includes(...) trên câu trả lời AI động!
  * Mọi câu trả lời AI (isAiResponse = true / mode = 'dynamic') phải được đọc chính xác 100%
- * bằng TTS động (Dynamic Cuppy TTS / Native TTS) để đảm bảo text và audio đồng nhất hoàn toàn.
+ * bằng TTS động (Dynamic VieNeu TTS / Native TTS) để đảm bảo text và audio đồng nhất hoàn toàn.
  */
 
 const PREBUILT_AUDIO_MAP = {

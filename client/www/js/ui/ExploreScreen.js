@@ -50,8 +50,8 @@ class ExploreScreen {
         category: "creative",
         icon: "🎙️",
         title: "Giọng nói & Âm thanh",
-        desc: "Chuyển văn bản · Lồng tiếng · Giọng Cuppy",
-        prompt: "Đọc diễn cảm đoạn văn sau bằng giọng Cuppy: ",
+        desc: "Chuyển văn bản · Lồng tiếng · Giọng Xuân Tiên AI",
+        prompt: "Đọc diễn cảm đoạn văn sau bằng giọng Xuân Tiên: ",
       },
       {
         id: "coding",

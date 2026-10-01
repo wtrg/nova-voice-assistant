@@ -28,7 +28,7 @@ class DiagnosticsPanel {
       minClientVersion: "",
       llmReady: false,
       ttsReady: false,
-      ttsPrimary: "cuppy",
+      ttsPrimary: "vieneu",
       ttsPrimaryReady: false,
       databaseReady: false,
       microphoneGranted: false,
@@ -95,7 +95,7 @@ class DiagnosticsPanel {
         results.minClientVersion = data.min_client_version || "";
         results.llmReady = Boolean(data.llm);
         results.ttsReady = Boolean(data.tts);
-        results.ttsPrimary = data.tts_primary || "cuppy";
+        results.ttsPrimary = data.tts_primary || "vieneu";
         results.ttsPrimaryReady = Boolean(data.tts_primary_ready);
         results.databaseReady = Boolean(data.database);
       }

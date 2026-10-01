@@ -96,52 +96,27 @@ class TextToSpeech:
         self.saydi_pool = SaydiKeyPool(SAYDI_API_KEY)
         self.saydi_voice = SAYDI_VOICE
 
-    def _generate_cuppy_tts(self, text: str, output_path: str) -> bool:
-        """Sinh giọng nói trợ lý ảo Cuppy thông qua Vieneu Neural TTS Engine từ reference WAV"""
+    def _generate_vieneu_tts(self, text: str, output_path: str) -> bool:
+        """Sinh giọng nói trợ lý ảo Nova (Xuân Tiên) qua VieNeu v3nano engine."""
         try:
-            from core.vieneu_cuppy import cuppy_engine
-            p = cuppy_engine.synthesize(text)
+            from core.vieneu_engine import nova_engine
+            p = nova_engine.synthesize(text)
             if p and p.exists() and p.stat().st_size > 1000:
                 import shutil
                 shutil.copyfile(str(p), output_path)
                 return True
         except Exception as e:
-            logger.warning(f"Local Vieneu Cuppy error: {e}")
-
-        # Trong STRICT_CUPPY_MODE, TUYỆT ĐỐI không gọi các endpoint remote không kiểm chứng
-        if STRICT_CUPPY_MODE:
-            return False
-
-        # Dự phòng các endpoint legacy nếu STRICT_CUPPY_MODE = False
-        raw_endpoints = [self.cuppy_local, "http://127.0.0.1:5055/v1/audio/speech", self.cuppy_url]
-        endpoints = [ep.strip() for ep in raw_endpoints if ep and ep.strip()]
-        
-        headers = {"Content-Type": "application/json"}
-        
-        for target_url in endpoints:
-            try:
-                if "speech" in target_url:
-                    payload = {"model": "tts-1", "input": text, "voice": self.cuppy_voice, "response_format": "mp3"}
-                else:
-                    payload = {"text": text, "voice": self.cuppy_voice, "speed": self.cuppy_speed, "format": "mp3"}
-                    
-                response = requests.post(target_url, json=payload, headers=headers, timeout=1.5)
-                if response.status_code == 200 and len(response.content) > 1000:
-                    with open(output_path, "wb") as f:
-                        f.write(response.content)
-                    return True
-                else:
-                    logger.warning(f"Cuppy TTS {target_url} trả về {response.status_code}")
-            except Exception as e:
-                logger.warning(f"Không kết nối được Cuppy TTS tại {target_url}: {e}")
-                
+            logger.warning(f"VieNeu TTS error: {e}")
         return False
 
+    def _generate_cuppy_tts(self, text: str, output_path: str) -> bool:
+        """Tương thích ngược: chuyển tiếp tới VieNeu TTS engine."""
+        return self._generate_vieneu_tts(text, output_path)
 
     async def _generate_edge_tts(self, text: str, output_path: str):
-        """Sinh giọng nói tiếng Việt tự nhiên dự phòng bằng Edge-TTS"""
+        """Sinh giọng nói tiếng Việt tự nhiên dự phòng bằng Edge-TTS (đã tinh chỉnh pitch và rate)."""
         import edge_tts
-        communicate = edge_tts.Communicate(text, self.edge_voice)
+        communicate = edge_tts.Communicate(text, self.edge_voice, pitch="+12Hz", rate="+8%")
         await communicate.save(output_path)
 
     def _generate_saydi_tts(self, text: str, output_path: str) -> bool:
@@ -211,112 +186,62 @@ class TextToSpeech:
         return False
 
     def synthesize(self, text: str) -> str:
-        """Chuyển văn bản thành file âm thanh mp3"""
+        """Chuyển văn bản thành file âm thanh wav/mp3 với VieNeu Xuân Tiên làm mặc định."""
         timestamp = int(time.time() * 1000)
-        output_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.mp3")
+        output_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.wav")
         
         success = False
-        # Ưu tiên 1: Giọng Cuppy Vieneu Local Voice Clone (từ Reference WAV)
-        if self.provider == "cuppy" or self.cuppy_url:
-            success = self._generate_cuppy_tts(text, output_file)
+        # Ưu tiên 1: Giọng VieNeu v3nano (Xuân Tiên)
+        if self.provider in ["vieneu", "cuppy", "nova"] or not self.provider:
+            success = self._generate_vieneu_tts(text, output_file)
 
         if success and Path(output_file).exists():
-            # F-14: Kiểm tra magic bytes và điều chỉnh phần mở rộng file chính xác (WAV vs MP3)
-            try:
-                with open(output_file, "rb") as f:
-                    header = f.read(12)
-                if header.startswith(b"RIFF") and b"WAVE" in header:
-                    wav_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.wav")
-                    Path(output_file).rename(wav_file)
-                    return wav_file
-            except Exception:
-                pass
             return output_file
 
-        # NẾU BẬT STRICT_CUPPY_MODE: CHẶN 100% CÁC VOICE KHÁC (Saydi, Edge-TTS, ElevenLabs, Bundled)
-        if STRICT_CUPPY_MODE:
-            logger.error("Cuppy reference WAV unavailable; strict mode blocks other voices.")
-            return ""
+        # Ưu tiên 2: Fallback sang Edge-TTS tự nhiên (đã tinh chỉnh tông Bạn Thân)
+        logger.warning("[TTS] VieNeu bận hoặc chưa sẵn sàng, sử dụng dự phòng Edge-TTS...")
+        try:
+            mp3_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.mp3")
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(lambda: asyncio.run(self._generate_edge_tts(text, mp3_file)))
+                future.result(timeout=10)
+            if Path(mp3_file).exists() and Path(mp3_file).stat().st_size > 500:
+                return mp3_file
+        except Exception as e:
+            logger.error(f"Lỗi Edge-TTS fallback: {e}")
 
-        # Ưu tiên 2: Saydi AI Voice Studio (CHỈ KHI STRICT_CUPPY_MODE = False)
-        if not success and self.saydi_pool and self.saydi_pool.has_keys():
-            success = self._generate_saydi_tts(text, output_file)
-            
-        if not success and self.provider == "elevenlabs":
-            success = self._generate_elevenlabs_clone(text, output_file)
-            
-        if not success:
-            # Fallback an toàn về Edge-TTS chỉ khi STRICT_CUPPY_MODE = False
-            logger.warning("[TTS] Cuppy TTS khong phan hoi, tam dung giong du phong Edge-TTS...")
-            try:
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(lambda: asyncio.run(self._generate_edge_tts(text, output_file)))
-                    future.result(timeout=15)
-                success = True
-            except Exception as e:
-                logger.error(f"Lỗi Edge-TTS fallback: {e}")
-
-        if not success:
-            # Fallback 4: Prebuilt bundled response audio if available
-            bundled_candidates = [
-                ROOT_DIR.parent / "client" / "www" / "assets" / "cuppy_ok.wav",
-                ROOT_DIR / "data" / "cuppy_ok.wav"
-            ]
-            for bc in bundled_candidates:
-                if bc.exists():
-                    import shutil
-                    wav_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.wav")
-                    shutil.copyfile(str(bc), wav_file)
-                    return wav_file
-
-        if success and Path(output_file).exists():
-            try:
-                with open(output_file, "rb") as f:
-                    header = f.read(12)
-                if header.startswith(b"RIFF") and b"WAVE" in header:
-                    wav_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.wav")
-                    Path(output_file).rename(wav_file)
-                    return wav_file
-            except Exception:
-                pass
-            return output_file
+        # Ưu tiên 3: Saydi AI Voice Studio (nếu có key)
+        if self.saydi_pool and self.saydi_pool.has_keys():
+            mp3_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.mp3")
+            if self._generate_saydi_tts(text, mp3_file):
+                return mp3_file
 
         return ""
 
     def get_tts_health(self) -> dict:
-        """Kiểm tra sức khỏe hệ thống TTS (V4-04)"""
-        cuppy_available = False
-        voice_source = "none"
-        ref_exists = False
-        ref_dur = 0.0
+        """Kiểm tra sức khỏe hệ thống TTS (VieNeu Xuân Tiên / Edge-TTS)"""
+        vieneu_ok = False
+        voice_name = "Xuân Tiên"
+        mode = "v3nano"
         try:
-            from core.vieneu_cuppy import cuppy_engine
-            h = cuppy_engine.get_health()
-            cuppy_available = bool(h.get("voice_loaded", False))
-            voice_source = h.get("voice_source", "none")
-            ref_exists = bool(h.get("reference_exists", False))
-            ref_dur = float(h.get("reference_duration", 0.0))
+            from core.vieneu_engine import nova_engine
+            h = nova_engine.get_health()
+            vieneu_ok = bool(h.get("model_loaded") and h.get("voice_loaded"))
+            voice_name = h.get("voice_name", "Xuân Tiên")
+            mode = h.get("mode", "v3nano")
         except Exception:
             pass
 
-        if not cuppy_available and not STRICT_CUPPY_MODE:
-            cuppy_available = bool(self.cuppy_url or (self.saydi_pool and self.saydi_pool.has_keys()))
-            if self.saydi_pool and self.saydi_pool.has_keys():
-                voice_source = "saydi_api"
-
         return {
-            "model_loaded": cuppy_available,
-            "voice_loaded": cuppy_available,
-            "voice_source": voice_source,
-            "reference_exists": ref_exists,
-            "reference_duration": ref_dur,
-            "strict_cuppy_mode": STRICT_CUPPY_MODE,
-            "fallback_used": voice_source != "reference_wav",
-            "tts_primary": "cuppy",
-            "tts_primary_ready": cuppy_available,
-            "tts_voice_source": voice_source,
-            "tts_fallback_ready": not STRICT_CUPPY_MODE
+            "model_loaded": vieneu_ok,
+            "voice_loaded": vieneu_ok,
+            "voice_name": voice_name,
+            "mode": mode,
+            "tts_primary": "vieneu",
+            "tts_primary_ready": vieneu_ok,
+            "tts_voice_source": "vieneu_preset",
+            "tts_fallback_ready": True
         }
 
     def speak(self, text: str, wait_until_done: bool = True):

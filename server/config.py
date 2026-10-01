@@ -29,24 +29,18 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "llama-3.3-70b-versatile")
 
-# Cấu hình Voice TTS (Cuppy / Edge-TTS / ElevenLabs)
-TTS_PROVIDER = os.getenv("TTS_PROVIDER", "cuppy")
+# Cấu hình Voice TTS (VieNeu v3 Nano - Giọng Xuân Tiên / Edge-TTS dự phòng)
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "vieneu") # "vieneu", "edge-tts", "elevenlabs"
+NOVA_VOICE = os.getenv("NOVA_VOICE", "Xuân Tiên")
+VIENEU_MODE = os.getenv("VIENEU_MODE", "v3nano")
+VIENEU_SPEED = float(os.getenv("VIENEU_SPEED", "1.0"))
+
+# Tương thích ngược cho các biến môi trường cũ
+CUPPY_VOICE = NOVA_VOICE
+CUPPY_SPEED = VIENEU_SPEED
 CUPPY_TTS_URL = os.getenv("CUPPY_TTS_URL", "")
-CUPPY_LOCAL_URL = os.getenv("CUPPY_LOCAL_URL", "http://127.0.0.1:5055/api/tts")
-CUPPY_VOICE = os.getenv("CUPPY_VOICE", "cuppy")
-CUPPY_SPEED = float(os.getenv("CUPPY_SPEED", "1.0"))
-CUPPY_REFERENCE_WAV = os.getenv(
-    "CUPPY_REFERENCE_WAV",
-    str(DATA_DIR / "voices" / "cuppy_sample.wav")
-)
-CUPPY_REFERENCE_DENOISE = (
-    os.getenv("CUPPY_REFERENCE_DENOISE", "true").lower()
-    in ("1", "true", "yes", "on")
-)
-STRICT_CUPPY_MODE = (
-    os.getenv("STRICT_CUPPY_MODE", "true").lower()
-    in ("1", "true", "yes", "on")
-)
+CUPPY_LOCAL_URL = os.getenv("CUPPY_LOCAL_URL", "")
+STRICT_CUPPY_MODE = False
 
 
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")

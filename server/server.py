@@ -188,12 +188,7 @@ async def health_ready():
 
     llm_ok = bool(GROQ_API_KEY or GEMINI_API_KEY)
     tts_health = tts_engine.get_tts_health()
-    from config import STRICT_CUPPY_MODE
-    if STRICT_CUPPY_MODE:
-        tts_ok = bool(tts_health.get("tts_primary_ready") and tts_health.get("tts_voice_source") == "reference_wav")
-    else:
-        tts_ok = bool(tts_health.get("tts_primary_ready") or tts_health.get("tts_fallback_ready", True))
-
+    tts_ok = bool(tts_health.get("tts_primary_ready") or tts_health.get("tts_fallback_ready", True))
     overall_ok = db_ok and tts_ok
     status_code = 200 if overall_ok else 503
 
@@ -207,36 +202,35 @@ async def health_ready():
             "llm": llm_ok,
             "tts": tts_ok,
             "database": db_ok,
-            "tts_primary": tts_health.get("tts_primary", "cuppy"),
+            "tts_primary": tts_health.get("tts_primary", "vieneu"),
             "tts_primary_ready": tts_health.get("tts_primary_ready", False),
-            "tts_voice_source": tts_health.get("tts_voice_source", "none"),
+            "tts_voice_name": tts_health.get("voice_name", "Xuân Tiên"),
             "tts_fallback_ready": tts_health.get("tts_fallback_ready", True)
         }
     )
 
 @app.get("/health/voice")
 async def health_voice():
-    """Kiểm tra sức khỏe động cơ giọng nói Cuppy Neural TTS"""
+    """Kiểm tra sức khỏe động cơ giọng nói Nova Neural TTS (Xuân Tiên)"""
     try:
-        from core.vieneu_cuppy import cuppy_engine
-        h = cuppy_engine.get_health()
-        from config import STRICT_CUPPY_MODE
-        is_ready = h.get("model_loaded") and (h.get("voice_source") == "reference_wav" or not STRICT_CUPPY_MODE)
-        status_code = 200 if is_ready else 503
+        from core.vieneu_engine import nova_engine
+        h = nova_engine.get_health()
+        status_code = 200 if h.get("model_loaded") else 503
         return JSONResponse(status_code=status_code, content=h)
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "error": str(e), "model_loaded": False})
 
 @app.get("/api/cuppy-tts")
+@app.get("/api/nova-tts")
 async def get_cuppy_tts(text: str):
-    """API sinh giọng nói Cuppy và fallback chuỗi tự động (V4-04)"""
+    """API sinh giọng nói Nova Xuân Tiên (hỗ trợ cả /api/nova-tts và tương thích ngược với /api/cuppy-tts)"""
     if not text or not text.strip():
         return JSONResponse(status_code=400, content={"error": "Text is required"})
 
     def synthesize_safe():
         try:
-            from core.vieneu_cuppy import cuppy_engine
-            p = cuppy_engine.synthesize(text.strip())
+            from core.vieneu_engine import nova_engine
+            p = nova_engine.synthesize(text.strip())
             if p and p.exists() and p.stat().st_size > 1000:
                 return str(p)
         except Exception:
@@ -244,10 +238,10 @@ async def get_cuppy_tts(text: str):
         return tts_engine.synthesize(text.strip())
 
     audio_path = await run_in_threadpool(synthesize_safe)
-    if audio_path and Path(audio_path).exists() and Path(audio_path).stat().st_size > 1000:
+    if audio_path and Path(audio_path).exists() and Path(audio_path).stat().st_size > 500:
         media_type = "audio/wav" if str(audio_path).endswith(".wav") else "audio/mpeg"
         return FileResponse(audio_path, media_type=media_type)
-    return JSONResponse(status_code=503, content={"error": "Cuppy voice synthesis failed (STRICT_CUPPY_MODE active)"})
+    return JSONResponse(status_code=503, content={"error": "Voice synthesis failed"})
 
 @app.api_route("/api/tts", methods=["GET", "POST"])
 async def get_tts_alias(req: Request, text: Optional[str] = None):

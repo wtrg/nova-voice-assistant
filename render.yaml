@@ -13,14 +13,12 @@ services:
         sync: false
       - key: TIMEZONE
         value: Asia/Ho_Chi_Minh
-      - key: SAYDI_API_KEY
-        sync: false
-      - key: SAYDI_VOICE
-        value: "Saydi - Cuppy — Trợ lý ảo nữ"
-      - key: CUPPY_REFERENCE_WAV
-        value: "/app/server/data/voices/cuppy_sample.wav"
-      - key: CUPPY_REFERENCE_DENOISE
-        value: "true"
+      - key: NOVA_VOICE
+        value: "Xuân Tiên"
+      - key: VIENEU_MODE
+        value: "v3nano"
+      - key: TTS_PROVIDER
+        value: "vieneu"
       - key: NOVA_API_BASE_URL
         fromService:
           type: web

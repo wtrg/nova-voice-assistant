@@ -60,12 +60,12 @@ class ProfileScreen {
             <span style="color: var(--text-dim);">›</span>
           </div>
 
-          <div class="settings-item" onclick="playStudioCuppyVoice()">
+          <div class="settings-item" onclick="playStudioXuanTienVoice()">
             <div class="settings-item-left">
               <span class="settings-item-icon">🎙️</span>
               <div>
-                <div style="font-weight: 600; color: var(--nova-silver-100);">Giọng nói độc quyền Cuppy</div>
-                <div style="font-size: 11px; color: var(--text-dim);">Reference Voice Clone 48kHz</div>
+                <div style="font-weight: 600; color: var(--nova-silver-100);">Giọng nói AI Xuân Tiên</div>
+                <div style="font-size: 11px; color: var(--text-dim);">VieNeu v3 Nano Neural TTS</div>
               </div>
             </div>
             <span style="color: var(--nova-blue-bright); font-size: 11px;">▶ Nghe thử</span>
