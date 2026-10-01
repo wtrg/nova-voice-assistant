@@ -50,3 +50,9 @@ server/data/tts_cache/
 server/data/cuppy_cache/
 *.db
 *.sqlite3
+
+# Voice References and Private Voice Assets (Protection)
+server/data/voices/*.wav
+server/private/
+*.voice.wav
+

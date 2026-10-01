@@ -17,6 +17,10 @@ services:
         sync: false
       - key: SAYDI_VOICE
         value: "Saydi - Cuppy — Trợ lý ảo nữ"
+      - key: CUPPY_REFERENCE_WAV
+        value: "/app/server/data/voices/cuppy_sample.wav"
+      - key: CUPPY_REFERENCE_DENOISE
+        value: "true"
       - key: NOVA_API_BASE_URL
         fromService:
           type: web

@@ -22,6 +22,10 @@ services:
       - TTS_PROVIDER=cuppy
       - CUPPY_LOCAL_URL=http://127.0.0.1:5055/api/tts
       - CUPPY_VOICE=cuppy
+      - CUPPY_REFERENCE_WAV=${CUPPY_REFERENCE_WAV:-/app/server/data/voices/cuppy_sample.wav}
+      - CUPPY_REFERENCE_DENOISE=${CUPPY_REFERENCE_DENOISE:-true}
+      - SAYDI_API_KEY=${SAYDI_API_KEY:-}
+      - SAYDI_VOICE=${SAYDI_VOICE:-Saydi - Cuppy — Trợ lý ảo nữ}
       - EDGE_TTS_VOICE=vi-VN-HoaiMyNeural
       - NOVA_DATA_DIR=/app/server/data
     volumes:

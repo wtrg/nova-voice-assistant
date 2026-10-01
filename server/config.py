@@ -35,6 +35,15 @@ CUPPY_TTS_URL = os.getenv("CUPPY_TTS_URL", "")
 CUPPY_LOCAL_URL = os.getenv("CUPPY_LOCAL_URL", "http://127.0.0.1:5055/api/tts")
 CUPPY_VOICE = os.getenv("CUPPY_VOICE", "cuppy")
 CUPPY_SPEED = float(os.getenv("CUPPY_SPEED", "1.0"))
+CUPPY_REFERENCE_WAV = os.getenv(
+    "CUPPY_REFERENCE_WAV",
+    str(DATA_DIR / "voices" / "cuppy_sample.wav")
+)
+CUPPY_REFERENCE_DENOISE = (
+    os.getenv("CUPPY_REFERENCE_DENOISE", "true").lower()
+    in ("1", "true", "yes", "on")
+)
+
 
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "")
