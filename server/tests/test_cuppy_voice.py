@@ -98,3 +98,15 @@ def test_health_reports_reference_voice():
     assert "voice_source" in health
     assert health["voice_source"] == "reference_wav"
     assert health["cache_writable"] is True
+    assert health["strict_cuppy_mode"] is True
+    assert health["fallback_used"] is False
+
+
+def test_strict_cuppy_mode_blocks_fallback():
+    """Kiểm tra khi STRICT_CUPPY_MODE=True và reference voice fail thì tts_engine không fallback sang Edge/Saydi."""
+    from core.tts import tts_engine
+    from unittest.mock import patch
+    with patch.object(cuppy_engine, "synthesize", return_value=None):
+        out = tts_engine.synthesize("Câu test không được phép fallback sang Edge-TTS")
+        assert out == "", f"Kỳ vọng chuỗi rỗng khi fail trong STRICT_CUPPY_MODE, nhưng nhận: {out}"
+

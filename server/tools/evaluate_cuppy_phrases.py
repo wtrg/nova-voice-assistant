@@ -18,12 +18,11 @@ if sys.platform == "win32":
 from core.vieneu_cuppy import cuppy_engine
 
 TEST_PHRASES = [
-    "Chào cậu, hôm nay cậu cảm thấy thế nào?",
-    "Bây giờ là tám giờ mười hai phút.",
-    "Tớ đã đặt lời nhắc cho cậu vào ngày mai.",
-    "Thời tiết hôm nay khá dễ chịu đấy.",
-    "Ừm, để tớ nghĩ một chút nhé.",
-    "Một trăm hai mươi ba nghìn bốn trăm năm mươi sáu."
+    "Chào cậu, tớ là Nova đây.",
+    "Mở YouTube rồi đó, cấm lướt linh tinh đấy.",
+    "Hôm nay cậu muốn mình giúp gì nào?",
+    "Tớ đã đặt lời nhắc cho cậu vào tám giờ tối.",
+    "Ngày mai nhớ mang theo ô nhé."
 ]
 
 def run_evaluation():
@@ -73,9 +72,9 @@ def run_evaluation():
     print("=" * 70)
     for r in results:
         if r["status"] == "PASS":
-            print(f"[{r['idx']}/6] PASS | {r['infer_time']:.2f}s | {r['duration']:.2f}s audio | {r['phrase']}")
+            print(f"[{r['idx']}/5] PASS | {r['infer_time']:.2f}s | {r['duration']:.2f}s audio | {r['phrase']}")
         else:
-            print(f"[{r['idx']}/6] FAIL | {r['phrase']}")
+            print(f"[{r['idx']}/5] FAIL | {r['phrase']}")
             
     all_passed = all(r["status"] == "PASS" for r in results)
     print(f"\nOVERALL RESULT: {'ALL TESTS PASSED' if all_passed else 'SOME TESTS FAILED'}")

@@ -188,7 +188,11 @@ async def health_ready():
 
     llm_ok = bool(GROQ_API_KEY or GEMINI_API_KEY)
     tts_health = tts_engine.get_tts_health()
-    tts_ok = bool(tts_health.get("tts_fallback_ready", True))
+    from config import STRICT_CUPPY_MODE
+    if STRICT_CUPPY_MODE:
+        tts_ok = bool(tts_health.get("tts_primary_ready") and tts_health.get("tts_voice_source") == "reference_wav")
+    else:
+        tts_ok = bool(tts_health.get("tts_primary_ready") or tts_health.get("tts_fallback_ready", True))
 
     overall_ok = db_ok and tts_ok
     status_code = 200 if overall_ok else 503
@@ -216,7 +220,9 @@ async def health_voice():
     try:
         from core.vieneu_cuppy import cuppy_engine
         h = cuppy_engine.get_health()
-        status_code = 200 if h.get("model_loaded") else 503
+        from config import STRICT_CUPPY_MODE
+        is_ready = h.get("model_loaded") and (h.get("voice_source") == "reference_wav" or not STRICT_CUPPY_MODE)
+        status_code = 200 if is_ready else 503
         return JSONResponse(status_code=status_code, content=h)
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "error": str(e), "model_loaded": False})
@@ -238,10 +244,10 @@ async def get_cuppy_tts(text: str):
         return tts_engine.synthesize(text.strip())
 
     audio_path = await run_in_threadpool(synthesize_safe)
-    if audio_path and Path(audio_path).exists():
+    if audio_path and Path(audio_path).exists() and Path(audio_path).stat().st_size > 1000:
         media_type = "audio/wav" if str(audio_path).endswith(".wav") else "audio/mpeg"
         return FileResponse(audio_path, media_type=media_type)
-    return JSONResponse(status_code=500, content={"error": "Could not synthesize audio"})
+    return JSONResponse(status_code=503, content={"error": "Cuppy voice synthesis failed (STRICT_CUPPY_MODE active)"})
 
 @app.api_route("/api/tts", methods=["GET", "POST"])
 async def get_tts_alias(req: Request, text: Optional[str] = None):

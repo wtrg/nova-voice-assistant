@@ -35,12 +35,17 @@ CUPPY_TTS_URL = os.getenv("CUPPY_TTS_URL", "")
 CUPPY_LOCAL_URL = os.getenv("CUPPY_LOCAL_URL", "http://127.0.0.1:5055/api/tts")
 CUPPY_VOICE = os.getenv("CUPPY_VOICE", "cuppy")
 CUPPY_SPEED = float(os.getenv("CUPPY_SPEED", "1.0"))
+DEFAULT_CUPPY_REFERENCE_WAV = r"C:/Users/Lenovo/AppData/Local/WTStudio/saydi-tts-service/cuppy_sample_8_12s.wav"
 CUPPY_REFERENCE_WAV = os.getenv(
     "CUPPY_REFERENCE_WAV",
-    str(DATA_DIR / "voices" / "cuppy_sample.wav")
+    DEFAULT_CUPPY_REFERENCE_WAV
 )
 CUPPY_REFERENCE_DENOISE = (
     os.getenv("CUPPY_REFERENCE_DENOISE", "true").lower()
+    in ("1", "true", "yes", "on")
+)
+STRICT_CUPPY_MODE = (
+    os.getenv("STRICT_CUPPY_MODE", "true").lower()
     in ("1", "true", "yes", "on")
 )
 

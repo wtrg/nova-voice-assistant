@@ -18,6 +18,7 @@ from config import (
     CUPPY_LOCAL_URL,
     CUPPY_VOICE,
     CUPPY_SPEED,
+    STRICT_CUPPY_MODE,
     ELEVENLABS_API_KEY, 
     ELEVENLABS_VOICE_ID, 
     EDGE_TTS_VOICE,
@@ -51,19 +52,6 @@ class SaydiKeyPool:
                 for sk in sub_keys:
                     if sk not in keys:
                         keys.append(sk)
-
-        # Khóa dự phòng hoạt động cho môi trường Cloud 24/7 (tự động giải mã)
-        import base64
-        FALLBACK_ENCODED_KEYS = [
-            "c3ZfbGl2ZV9MVHMyMDY4bXJWWVZkSzBBRGd0Z1hqUEF4eHJNMUdoZg=="
-        ]
-        for b64k in FALLBACK_ENCODED_KEYS:
-            try:
-                dec = base64.b64decode(b64k).decode("utf-8").strip()
-                if dec and dec not in keys:
-                    keys.append(dec)
-            except Exception:
-                pass
 
         self.keys = keys
         self.current_index = 0
@@ -109,7 +97,7 @@ class TextToSpeech:
         self.saydi_voice = SAYDI_VOICE
 
     def _generate_cuppy_tts(self, text: str, output_path: str) -> bool:
-        """Sinh giọng nói trợ lý ảo Cuppy thông qua Vieneu Neural TTS Engine"""
+        """Sinh giọng nói trợ lý ảo Cuppy thông qua Vieneu Neural TTS Engine từ reference WAV"""
         try:
             from core.vieneu_cuppy import cuppy_engine
             p = cuppy_engine.synthesize(text)
@@ -120,7 +108,11 @@ class TextToSpeech:
         except Exception as e:
             logger.warning(f"Local Vieneu Cuppy error: {e}")
 
-        # Dự phòng các endpoint nếu có
+        # Trong STRICT_CUPPY_MODE, TUYỆT ĐỐI không gọi các endpoint remote không kiểm chứng
+        if STRICT_CUPPY_MODE:
+            return False
+
+        # Dự phòng các endpoint legacy nếu STRICT_CUPPY_MODE = False
         raw_endpoints = [self.cuppy_local, "http://127.0.0.1:5055/v1/audio/speech", self.cuppy_url]
         endpoints = [ep.strip() for ep in raw_endpoints if ep and ep.strip()]
         
@@ -228,7 +220,25 @@ class TextToSpeech:
         if self.provider == "cuppy" or self.cuppy_url:
             success = self._generate_cuppy_tts(text, output_file)
 
-        # Ưu tiên 2: Saydi AI Voice Studio (voice.saydi.ai) nếu local VieNeu không khả dụng
+        if success and Path(output_file).exists():
+            # F-14: Kiểm tra magic bytes và điều chỉnh phần mở rộng file chính xác (WAV vs MP3)
+            try:
+                with open(output_file, "rb") as f:
+                    header = f.read(12)
+                if header.startswith(b"RIFF") and b"WAVE" in header:
+                    wav_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.wav")
+                    Path(output_file).rename(wav_file)
+                    return wav_file
+            except Exception:
+                pass
+            return output_file
+
+        # NẾU BẬT STRICT_CUPPY_MODE: CHẶN 100% CÁC VOICE KHÁC (Saydi, Edge-TTS, ElevenLabs, Bundled)
+        if STRICT_CUPPY_MODE:
+            logger.error("Cuppy reference WAV unavailable; strict mode blocks other voices.")
+            return ""
+
+        # Ưu tiên 2: Saydi AI Voice Studio (CHỈ KHI STRICT_CUPPY_MODE = False)
         if not success and self.saydi_pool and self.saydi_pool.has_keys():
             success = self._generate_saydi_tts(text, output_file)
             
@@ -236,7 +246,7 @@ class TextToSpeech:
             success = self._generate_elevenlabs_clone(text, output_file)
             
         if not success:
-            # Fallback an toàn về Edge-TTS chỉ khi Cuppy hoàn toàn mất kết nối
+            # Fallback an toàn về Edge-TTS chỉ khi STRICT_CUPPY_MODE = False
             logger.warning("[TTS] Cuppy TTS khong phan hoi, tam dung giong du phong Edge-TTS...")
             try:
                 import concurrent.futures
@@ -261,7 +271,6 @@ class TextToSpeech:
                     return wav_file
 
         if success and Path(output_file).exists():
-            # F-14: Kiểm tra magic bytes và điều chỉnh phần mở rộng file chính xác (WAV vs MP3)
             try:
                 with open(output_file, "rb") as f:
                     header = f.read(12)
@@ -279,23 +288,35 @@ class TextToSpeech:
         """Kiểm tra sức khỏe hệ thống TTS (V4-04)"""
         cuppy_available = False
         voice_source = "none"
+        ref_exists = False
+        ref_dur = 0.0
         try:
             from core.vieneu_cuppy import cuppy_engine
             h = cuppy_engine.get_health()
             cuppy_available = bool(h.get("voice_loaded", False))
             voice_source = h.get("voice_source", "none")
+            ref_exists = bool(h.get("reference_exists", False))
+            ref_dur = float(h.get("reference_duration", 0.0))
         except Exception:
             pass
-        if not cuppy_available:
+
+        if not cuppy_available and not STRICT_CUPPY_MODE:
             cuppy_available = bool(self.cuppy_url or (self.saydi_pool and self.saydi_pool.has_keys()))
             if self.saydi_pool and self.saydi_pool.has_keys():
                 voice_source = "saydi_api"
 
         return {
+            "model_loaded": cuppy_available,
+            "voice_loaded": cuppy_available,
+            "voice_source": voice_source,
+            "reference_exists": ref_exists,
+            "reference_duration": ref_dur,
+            "strict_cuppy_mode": STRICT_CUPPY_MODE,
+            "fallback_used": voice_source != "reference_wav",
             "tts_primary": "cuppy",
             "tts_primary_ready": cuppy_available,
             "tts_voice_source": voice_source,
-            "tts_fallback_ready": True
+            "tts_fallback_ready": not STRICT_CUPPY_MODE
         }
 
     def speak(self, text: str, wait_until_done: bool = True):

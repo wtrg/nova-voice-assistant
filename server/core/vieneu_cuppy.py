@@ -24,6 +24,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 from config import (
     CUPPY_REFERENCE_WAV,
     CUPPY_REFERENCE_DENOISE,
+    STRICT_CUPPY_MODE,
     DATA_DIR
 )
 
@@ -107,8 +108,8 @@ class CuppyNeuralTTS:
                 self.reference_exists = False
                 self.voice_loaded = False
 
-        # 2. Fallback: Nếu không có WAV hoặc lỗi, thử nạp từ Preset JSON cũ
-        if not self.voice_loaded and MASTER_VOICES_PATH.exists():
+        # 2. Fallback: Nếu không có WAV hoặc lỗi, thử nạp từ Preset JSON cũ (CHỈ CHO PHÉP KHI STRICT_CUPPY_MODE = False)
+        if not self.voice_loaded and not STRICT_CUPPY_MODE and MASTER_VOICES_PATH.exists():
             try:
                 with open(MASTER_VOICES_PATH, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -136,9 +137,12 @@ class CuppyNeuralTTS:
         # In banner logging trạng thái khởi động theo chuẩn kiến trúc Nova
         logger.info("=" * 60)
         logger.info(f"VieNeu v3turbo: {'READY' if self.model_loaded else 'FAILED'}")
+        logger.info(f"Cuppy reference: {ref_path if ref_path else 'NONE'}")
         logger.info(f"Cuppy reference: {'FOUND' if self.reference_exists else 'NOT_FOUND'}")
+        logger.info(f"Reference duration: ~{self.reference_duration:.2f}s")
         logger.info(f"Cuppy voice: {'LOADED' if self.voice_loaded else 'NOT_LOADED'}")
         logger.info(f"Voice source: {self.voice_source}")
+        logger.info(f"Strict Cuppy Mode: {str(STRICT_CUPPY_MODE).lower()}")
         logger.info(f"Fallback used: {str(self.voice_source != 'reference_wav').lower()}")
         logger.info("=" * 60)
 
@@ -196,13 +200,16 @@ class CuppyNeuralTTS:
         return b""
 
     def get_health(self) -> dict:
+        is_ok = self.model_loaded and self.voice_loaded and (self.voice_source == "reference_wav" or not STRICT_CUPPY_MODE)
         return {
-            "status": "ok" if (self.model_loaded and self.voice_loaded) else "degraded",
+            "status": "ok" if is_ok else "degraded",
             "model_loaded": self.model_loaded,
             "voice_loaded": self.voice_loaded,
             "voice_source": self.voice_source,
             "reference_exists": self.reference_exists,
             "reference_duration": self.reference_duration,
+            "strict_cuppy_mode": STRICT_CUPPY_MODE,
+            "fallback_used": self.voice_source != "reference_wav",
             "cache_writable": CACHE_DIR.exists() and os.access(str(CACHE_DIR), os.W_OK),
             "warm": self.model_loaded
         }
