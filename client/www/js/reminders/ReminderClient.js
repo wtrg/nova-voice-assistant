@@ -23,6 +23,61 @@ class ReminderClient {
   constructor(options = {}) {
     this.scheduledAlarms = new Map();
     this.onTaskScheduled = options.onTaskScheduled || null;
+    this.flushAckOutbox();
+  }
+
+  saveToAckOutbox(item) {
+    try {
+      const outbox = this.getAckOutbox();
+      const existingIdx = outbox.findIndex(x => x.reminder_id === item.reminder_id);
+      if (existingIdx >= 0) {
+        outbox[existingIdx] = Object.assign({}, outbox[existingIdx], item);
+      } else {
+        outbox.push(item);
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem("nova_ack_outbox", JSON.stringify(outbox));
+      }
+    } catch (e) {
+      console.warn("[ReminderClient] saveToAckOutbox error:", e);
+    }
+  }
+
+  getAckOutbox() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem("nova_ack_outbox");
+        if (raw) return JSON.parse(raw);
+      }
+    } catch (e) {}
+    return [];
+  }
+
+  removeFromAckOutbox(reminderId) {
+    try {
+      let outbox = this.getAckOutbox();
+      outbox = outbox.filter(x => x.reminder_id !== reminderId);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem("nova_ack_outbox", JSON.stringify(outbox));
+      }
+    } catch (e) {
+      console.warn("[ReminderClient] removeFromAckOutbox error:", e);
+    }
+  }
+
+  async flushAckOutbox() {
+    const outbox = this.getAckOutbox();
+    if (!outbox || outbox.length === 0) return;
+    for (const item of outbox) {
+      try {
+        const res = await this.sendDeviceAck(item.reminder_id, item.status, item.error);
+        if (res && res.ok) {
+          this.removeFromAckOutbox(item.reminder_id);
+        }
+      } catch (e) {
+        console.warn("[ReminderClient] flushAckOutbox error for", item.reminder_id, e);
+      }
+    }
   }
 
   getCanonicalId(task) {
@@ -98,12 +153,10 @@ class ReminderClient {
     };
   }
 
-
-
   /**
-   * Gọi bridge Android để đặt báo thức chính xác với ACK (V3.1: Fail-closed validation)
+   * Gọi bridge Android để đặt báo thức chính xác với ACK (V3.2: Fail-closed, outbox, timestamp validation)
    * @param {Object} task
-   * @returns {Promise<{ ok: boolean, reminder_id: string, pending_intent_id?: number, exact?: boolean, error?: string }>}
+   * @returns {Promise<{ ok: boolean, reminder_id: string, pending_intent_id?: number, exact?: boolean, error?: string, nativeScheduled?: boolean, serverAckPersisted?: boolean, serverAckRetryable?: boolean }>}
    */
   async scheduleNativeTask(task) {
     const reminderId = task.reminder_id || this.getCanonicalId(task);
@@ -114,6 +167,14 @@ class ReminderClient {
       const parsed = Date.parse(task.scheduled_time.replace(" ", "T"));
       if (!isNaN(parsed)) {
         timestamp = parsed;
+      }
+    }
+
+    const policy = (typeof window !== 'undefined' && window.ReminderDeliveryPolicy) || _reminderDeliveryPolicy;
+    if (policy && typeof policy.validateTimestamp === 'function') {
+      const timeVal = policy.validateTimestamp(timestamp);
+      if (!timeVal.valid) {
+        return { ok: false, reminder_id: reminderId, error: timeVal.reason || "invalid_timestamp", nativeScheduled: false };
       }
     }
 
@@ -130,7 +191,6 @@ class ReminderClient {
         }));
 
         let ack = null;
-        const policy = (typeof window !== 'undefined' && window.ReminderDeliveryPolicy) || _reminderDeliveryPolicy;
         if (policy && typeof policy.validateNativeAck === 'function') {
           ack = policy.validateNativeAck(ackStr, reminderId);
         } else {
@@ -155,30 +215,85 @@ class ReminderClient {
 
         if (ack && ack.ok) {
           this.scheduledAlarms.set(reminderId, { task, ack });
-          this.sendDeviceAck(reminderId, "confirmed");
+          this.saveToAckOutbox({
+            reminder_id: reminderId,
+            status: "confirmed",
+            created_at: Date.now(),
+            attempt_count: 0
+          });
+          const ackRes = await this.sendDeviceAck(reminderId, "confirmed");
+          if (ackRes && ackRes.ok) {
+            this.removeFromAckOutbox(reminderId);
+          }
+          return {
+            ok: true,
+            reminder_id: reminderId,
+            pending_intent_id: ack.pending_intent_id,
+            exact: ack.exact !== false,
+            scheduled_at_epoch_ms: timestamp,
+            nativeScheduled: true,
+            serverAckPersisted: Boolean(ackRes && ackRes.ok),
+            serverAckRetryable: Boolean(ackRes && !ackRes.ok && ackRes.httpStatus !== 404 && ackRes.httpStatus !== 422)
+          };
         } else {
           const failErr = (ack && (ack.error || ack.message)) || "invalid_native_ack";
-          this.sendDeviceAck(reminderId, "device_schedule_failed", failErr);
+          this.saveToAckOutbox({
+            reminder_id: reminderId,
+            status: "device_schedule_failed",
+            error: failErr,
+            created_at: Date.now(),
+            attempt_count: 0
+          });
+          const ackRes = await this.sendDeviceAck(reminderId, "device_schedule_failed", failErr);
+          if (ackRes && ackRes.ok) {
+            this.removeFromAckOutbox(reminderId);
+          }
+          return Object.assign({}, ack, {
+            nativeScheduled: false,
+            serverAckPersisted: Boolean(ackRes && ackRes.ok),
+            serverAckRetryable: false
+          });
         }
-        return ack;
       } catch (err) {
         console.error("[ReminderClient] scheduleNativeAlarm error:", err);
-        const failAck = { ok: false, reminder_id: reminderId, error: err.message };
-        this.sendDeviceAck(reminderId, "device_schedule_failed", err.message);
+        const failAck = { ok: false, reminder_id: reminderId, error: err.message, nativeScheduled: false };
+        this.saveToAckOutbox({
+          reminder_id: reminderId,
+          status: "device_schedule_failed",
+          error: err.message,
+          created_at: Date.now(),
+          attempt_count: 0
+        });
+        const ackRes = await this.sendDeviceAck(reminderId, "device_schedule_failed", err.message);
+        if (ackRes && ackRes.ok) {
+          this.removeFromAckOutbox(reminderId);
+        }
         return failAck;
       }
     }
 
     // Nếu chạy trên Web / Test Runner
     this.scheduledAlarms.set(reminderId, { task, simulated: true });
-    this.sendDeviceAck(reminderId, "confirmed");
+    this.saveToAckOutbox({
+      reminder_id: reminderId,
+      status: "confirmed",
+      created_at: Date.now(),
+      attempt_count: 0
+    });
+    const ackRes = await this.sendDeviceAck(reminderId, "confirmed");
+    if (ackRes && ackRes.ok) {
+      this.removeFromAckOutbox(reminderId);
+    }
     return {
       ok: true,
       reminder_id: reminderId,
       pending_intent_id: 1,
       exact: true,
       scheduled_at_epoch_ms: timestamp,
-      simulated: true
+      simulated: true,
+      nativeScheduled: true,
+      serverAckPersisted: Boolean(ackRes && ackRes.ok),
+      serverAckRetryable: false
     };
   }
 

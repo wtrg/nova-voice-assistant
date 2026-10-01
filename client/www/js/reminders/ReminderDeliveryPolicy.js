@@ -65,6 +65,27 @@ class ReminderDeliveryPolicy {
       error: ack.ok ? null : (ack.error || ack.message || "native_schedule_failed")
     };
   }
+
+  /**
+   * Kiểm tra tính hợp lệ của timestamp nhắc việc (P1-04)
+   * Fail closed nếu epochMs <= 0, NaN, thời gian quá khứ (>60s), hoặc quá 100 năm tới.
+   */
+  static validateTimestamp(epochMs, nowMs = Date.now()) {
+    if (typeof epochMs !== 'number' || isNaN(epochMs) || !isFinite(epochMs)) {
+      return { valid: false, reason: "invalid_type_or_nan" };
+    }
+    if (epochMs <= 0) {
+      return { valid: false, reason: "non_positive" };
+    }
+    if (epochMs < nowMs - 60000) {
+      return { valid: false, reason: "past_timestamp" };
+    }
+    const maxFutureMs = nowMs + (100 * 365.25 * 24 * 3600 * 1000);
+    if (epochMs > maxFutureMs) {
+      return { valid: false, reason: "absurd_future_timestamp" };
+    }
+    return { valid: true };
+  }
 }
 
 if (typeof window !== 'undefined') {
