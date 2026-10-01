@@ -1,0 +1,55 @@
+/* ===================================================================
+   NOVA MOTION SYSTEM & ACCESSIBILITY (Section 32 & 48)
+   =================================================================== */
+
+/* Breathing & Soul Aura Keyframes */
+@keyframes soul-breathe {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 24px rgba(90, 169, 255, 0.35));
+  }
+  50% {
+    transform: scale(1.02);
+    filter: drop-shadow(0 0 40px rgba(90, 169, 255, 0.65));
+  }
+}
+
+@keyframes hud-spin-cw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes hud-spin-ccw {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+.anim-soul-breathe {
+  animation: soul-breathe 4s ease-in-out infinite;
+}
+
+.anim-spin-slow {
+  animation: hud-spin-cw 32s linear infinite;
+}
+
+.anim-spin-reverse {
+  animation: hud-spin-ccw 24s linear infinite;
+}
+
+/* Reduced Motion Override (Section 48) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  
+  .anim-soul-breathe,
+  .anim-spin-slow,
+  .anim-spin-reverse,
+  .mic-halo-ring,
+  .cyber-waveform.active .cyber-wave-bar {
+    animation: none !important;
+  }
+}

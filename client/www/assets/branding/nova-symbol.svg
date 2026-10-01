@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Space Glow -->
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0f223f" stop-opacity="0.6"/>
+      <stop offset="60%" stop-color="#050a14" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#030508" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Core Blue Flare -->
+    <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="25%" stop-color="#8CC8FF" stop-opacity="0.9"/>
+      <stop offset="55%" stop-color="#5AA9FF" stop-opacity="0.5"/>
+      <stop offset="85%" stop-color="#1E4B8A" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#070B12" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Chrome Metallic Ribbon Gradient -->
+    <linearGradient id="chromeLeft" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="20%" stop-color="#E8EDF4"/>
+      <stop offset="45%" stop-color="#9CA7B6"/>
+      <stop offset="70%" stop-color="#E8EDF4"/>
+      <stop offset="90%" stop-color="#6A778B"/>
+      <stop offset="100%" stop-color="#C9D0DB"/>
+    </linearGradient>
+
+    <linearGradient id="chromeRight" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="25%" stop-color="#DCE4EE"/>
+      <stop offset="50%" stop-color="#7B889B"/>
+      <stop offset="75%" stop-color="#E8EDF4"/>
+      <stop offset="100%" stop-color="#9CA7B6"/>
+    </linearGradient>
+
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="intenseGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12" result="blur2"/>
+      <feMerge>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Ambient Backdrop -->
+  <circle cx="256" cy="256" r="240" fill="url(#bgGlow)"/>
+
+  <!-- HUD Concentric Rings -->
+  <g opacity="0.35" stroke="#5AA9FF" stroke-width="1.2" fill="none">
+    <!-- Outer Ring -->
+    <circle cx="256" cy="256" r="180" stroke-dasharray="4 8"/>
+    <!-- Middle Ring -->
+    <circle cx="256" cy="256" r="120" stroke-dasharray="12 16"/>
+    <!-- Inner Target Ring -->
+    <circle cx="256" cy="256" r="70" stroke-dasharray="2 4"/>
+  </g>
+
+  <!-- HUD Crosshair & Vertical Energy Axis -->
+  <g stroke="#8CC8FF" stroke-width="1.2" opacity="0.45">
+    <line x1="256" y1="40" x2="256" y2="472"/>
+    <line x1="60" y1="256" x2="452" y2="256" stroke-dasharray="8 6"/>
+  </g>
+
+  <!-- Vertical Axis Energy Nodes -->
+  <circle cx="256" cy="96" r="4.5" fill="#E8EDF4" filter="url(#softGlow)"/>
+  <circle cx="256" cy="140" r="3" fill="#8CC8FF"/>
+  <circle cx="256" cy="372" r="3" fill="#8CC8FF"/>
+  <circle cx="256" cy="416" r="4.5" fill="#E8EDF4" filter="url(#softGlow)"/>
+
+  <!-- 3D Chrome Infinity Shape Outer Shadow / Ambient Rim -->
+  <path d="M 256,256 C 290,210 330,172 384,172 C 440,172 478,210 478,256 C 478,302 440,340 384,340 C 330,340 290,302 256,256 C 222,210 182,172 128,172 C 72,172 34,210 34,256 C 34,302 72,340 128,340 C 182,340 222,302 256,256 Z"
+        fill="none" stroke="#070B12" stroke-width="48" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+
+  <!-- 3D Chrome Infinity Ribbon - Main Metallic Body -->
+  <path d="M 256,256 C 290,210 330,172 384,172 C 440,172 478,210 478,256 C 478,302 440,340 384,340 C 330,340 290,302 256,256 C 222,210 182,172 128,172 C 72,172 34,210 34,256 C 34,302 72,340 128,340 C 182,340 222,302 256,256 Z"
+        fill="none" stroke="url(#chromeLeft)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 3D Inner Bevel / Reflection Edge -->
+  <path d="M 256,256 C 290,210 330,172 384,172 C 440,172 478,210 478,256 C 478,302 440,340 384,340 C 330,340 290,302 256,256 C 222,210 182,172 128,172 C 72,172 34,210 34,256 C 34,302 72,340 128,340 C 182,340 222,302 256,256 Z"
+        fill="none" stroke="url(#chromeRight)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+
+  <!-- High-Gloss Specular Highlights -->
+  <path d="M 256,256 C 290,210 330,172 384,172 C 430,172 466,204 472,246"
+        fill="none" stroke="#FFFFFF" stroke-width="4.5" opacity="0.85" filter="url(#softGlow)"/>
+  <path d="M 128,340 C 176,340 216,306 256,256"
+        fill="none" stroke="#FFFFFF" stroke-width="4.5" opacity="0.85" filter="url(#softGlow)"/>
+
+  <!-- Glowing Soul Core Halo -->
+  <circle cx="256" cy="256" r="68" fill="url(#coreGlow)" filter="url(#intenseGlow)"/>
+  <circle cx="256" cy="256" r="28" fill="#5AA9FF" opacity="0.75" filter="url(#softGlow)"/>
+
+  <!-- Radiant Core Center -->
+  <circle cx="256" cy="256" r="14" fill="#E8EDF4"/>
+  <circle cx="256" cy="256" r="8" fill="#FFFFFF" filter="url(#softGlow)"/>
+
+  <!-- Star Rays Lens Flare -->
+  <path d="M 256,196 L 256,316 M 196,256 L 316,256" stroke="#FFFFFF" stroke-width="2" opacity="0.9" filter="url(#softGlow)"/>
+  <path d="M 220,220 L 292,292 M 220,292 L 292,220" stroke="#8CC8FF" stroke-width="1.2" opacity="0.6"/>
+</svg>

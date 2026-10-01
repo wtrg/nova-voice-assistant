@@ -1,0 +1,83 @@
+/* ===================================================================
+   NOVA DARK GLASS MATERIAL SYSTEM (Section 3.2)
+   =================================================================== */
+
+.glass-panel {
+  background: linear-gradient(
+    180deg,
+    rgba(18, 25, 36, 0.72) 0%,
+    rgba(7, 11, 18, 0.88) 100%
+  );
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-panel-elevated {
+  background: linear-gradient(
+    180deg,
+    rgba(24, 34, 50, 0.80) 0%,
+    rgba(9, 14, 24, 0.92) 100%
+  );
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.glass-card {
+  background: linear-gradient(
+    180deg,
+    rgba(16, 23, 34, 0.65) 0%,
+    rgba(8, 12, 20, 0.82) 100%
+  );
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: transform var(--timing-card) var(--ease-spring),
+              border-color var(--timing-card) ease,
+              box-shadow var(--timing-card) ease;
+}
+
+.glass-card:active {
+  transform: scale(0.98);
+  border-color: var(--border-active);
+  box-shadow: var(--shadow-energy);
+}
+
+.glass-pill {
+  background: rgba(16, 24, 38, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  transition: all var(--timing-tap) ease;
+}
+
+.glass-pill:hover, .glass-pill:active {
+  background: rgba(28, 42, 66, 0.85);
+  border-color: var(--border-active);
+}
+
+.glass-input {
+  background: rgba(7, 12, 20, 0.85);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  padding: 12px 16px;
+  font-size: 13px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.glass-input:focus {
+  border-color: var(--nova-blue);
+  box-shadow: 0 0 16px rgba(90, 169, 255, 0.25);
+}

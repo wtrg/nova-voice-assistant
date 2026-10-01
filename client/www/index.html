@@ -4,40 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="referrer" content="no-referrer">
-  <title>Nova AI - Bạn Thân Kỷ Luật (Standalone)</title>
+  <title>NOVA — Cyber Infinity Soul</title>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#090d16">
-  <link rel="icon" href="https://api.iconify.design/fluent-emoji:sparkles.svg">
+  <meta name="theme-color" content="#030508">
+  <link rel="icon" href="assets/branding/nova-symbol.svg">
+
+  <!-- Core Design System CSS -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/reset.css">
+  <link rel="stylesheet" href="css/glass.css">
+  <link rel="stylesheet" href="css/cyber.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/app-shell.css">
+  <link rel="stylesheet" href="css/screens.css">
+  <link rel="stylesheet" href="css/motion.css">
   <link rel="stylesheet" href="assets/tailwind.min.css">
   <script src="assets/tailwind.cdn.js"></script>
-  <style>
-    @keyframes pulse-glow {
-      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(99, 102, 241, 0.6)); }
-      50% { transform: scale(1.06); filter: drop-shadow(0 0 45px rgba(168, 85, 247, 0.85)); }
-    }
-    @keyframes wave-bar {
-      0%, 100% { height: 6px; }
-      50% { height: 28px; }
-    }
-    .orb-glow {
-      animation: pulse-glow 3s infinite ease-in-out;
-      background: radial-gradient(circle at 30% 30%, #38bdf8, #818cf8 40%, #c084fc 70%, #4f46e5 100%);
-    }
-    .speaking-orb {
-      animation: pulse-glow 0.8s infinite ease-in-out !important;
-      background: radial-gradient(circle at 30% 30%, #f43f5e, #fb7185 40%, #c084fc 70%, #6366f1 100%) !important;
-    }
-    .listening-orb {
-      animation: pulse-glow 1.2s infinite ease-in-out !important;
-      background: radial-gradient(circle at 30% 30%, #10b981, #34d399 40%, #06b6d4 70%, #3b82f6 100%) !important;
-    }
-    .wave-active .w-bar:nth-child(1) { animation: wave-bar 0.7s infinite 0.1s; }
-    .wave-active .w-bar:nth-child(2) { animation: wave-bar 0.7s infinite 0.2s; }
-    .wave-active .w-bar:nth-child(3) { animation: wave-bar 0.7s infinite 0.3s; }
-    .wave-active .w-bar:nth-child(4) { animation: wave-bar 0.7s infinite 0.15s; }
-    .wave-active .w-bar:nth-child(5) { animation: wave-bar 0.7s infinite 0.25s; }
-  </style>
+
+  <!-- Legacy Conversation & Reminders Controllers -->
   <script src="js/config/AppConfig.js"></script>
   <script src="js/voice/prebuiltAudioMap.js"></script>
   <script src="js/reminders/ReminderId.js"></script>
@@ -48,39 +33,220 @@
   <script src="js/reminders/ReminderClient.js"></script>
   <script src="js/diagnostics/DiagnosticsPanel.js"></script>
   <script src="js/onboarding/FirstRunWizard.js"></script>
-</head>
-<body class="bg-[#090d16] text-white font-sans antialiased min-h-screen flex flex-col justify-between p-4 select-none">
 
-  <!-- Header -->
-  <header class="flex justify-between items-center pt-1 pb-3 border-b border-white/10">
-    <div>
-      <div class="flex items-center gap-2">
-        <h1 class="text-xl font-bold bg-gradient-to-r from-sky-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">NOVA AI</h1>
-        <button id="wakeBadge" onclick="toggleWakeWord()" title="Bật/Tắt tự động lắng nghe 'Hey Nova' rảnh tay" class="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition active:scale-95">
-          <span id="wakeDot" class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+  <!-- 3D Three.js & Cyber Visual Engine -->
+  <script src="assets/3d/three.min.js"></script>
+  <script src="js/three/PerformanceGovernor.js"></script>
+  <script src="js/three/InfinitySoul.js"></script>
+  <script src="js/three/SoulCore.js"></script>
+  <script src="js/three/HudRings.js"></script>
+  <script src="js/three/EnergyParticles.js"></script>
+  <script src="js/three/NovaScene.js"></script>
+  <script src="js/visual/NovaVisualState.js"></script>
+  <script src="js/visual/VisualEventBridge.js"></script>
+
+  <!-- UI Controllers -->
+  <script src="js/ui/AppShell.js"></script>
+  <script src="js/ui/HomeScreen.js"></script>
+  <script src="js/ui/ChatScreen.js"></script>
+  <script src="js/ui/ExploreScreen.js"></script>
+  <script src="js/ui/ProfileScreen.js"></script>
+</head>
+<body class="bg-[#030508] text-white font-sans antialiased select-none">
+  <div id="appRoot">
+
+    <!-- Top App Bar -->
+    <header class="app-top-bar">
+      <div class="top-bar-brand" onclick="if(window.appShellInstance) window.appShellInstance.navigateTo('home')">
+        <img src="assets/branding/nova-symbol.svg" class="top-bar-logo" alt="Nova">
+        <span class="top-bar-title">NOVA</span>
+      </div>
+
+      <div class="flex items-center gap-1.5">
+        <button id="wakeBadge" onclick="toggleWakeWord()" title="Bật/Tắt tự động lắng nghe 'Hey Nova' rảnh tay" class="status-pill">
+          <span id="wakeDot" class="status-dot"></span>
           <span id="wakeStatusText">"Hey Nova": TẮT</span>
         </button>
       </div>
-      <p id="statusBadge" class="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-        <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
-        <span id="statusLabel">Chạm quả cầu 🔮 hoặc mic 🎙️ để nói</span>
-      </p>
-    </div>
-    <div class="flex items-center gap-1.5">
-      <div id="convBadge" class="hidden px-2 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold flex items-center gap-1 animate-pulse">
-        <span>🎙️ Hội thoại</span>
+
+      <div class="top-bar-actions">
+        <div id="convBadge" class="hidden px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold animate-pulse">
+          <span>🎙️</span>
+        </div>
+        <button onclick="toggleHelpModal()" class="icon-btn-ghost" title="Hướng dẫn 4 cách gọi Nova">
+          💡
+        </button>
+        <button onclick="toggleTaskList()" class="icon-btn-ghost relative" title="Danh sách lịch hẹn">
+          📅 <span id="taskCountBadge" class="absolute -top-1 -right-1 text-[9px] bg-indigo-600 px-1 rounded-full">0</span>
+        </button>
+        <button onclick="openServerConfigModal()" class="icon-btn-ghost" title="Cài đặt kết nối máy chủ">
+          ⚙️
+        </button>
       </div>
-      <button onclick="toggleHelpModal()" title="Hướng dẫn 4 cách gọi Nova" class="p-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 hover:text-white transition text-xs flex items-center gap-1 border border-sky-500/20">
-        ⚡ <span>Cách gọi</span>
-      </button>
-      <button onclick="toggleTaskList()" title="Danh sách lịch hẹn" class="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition text-xs flex items-center gap-1">
-        📅 <span id="taskCountBadge" class="text-[10px] bg-indigo-600 px-1.5 py-0.2 rounded-full">0</span>
-      </button>
-      <button onclick="openServerConfigModal()" title="Cài đặt kết nối máy chủ" class="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-white transition text-xs flex items-center gap-1 border border-emerald-500/20">
-        ⚙️ <span>Kết nối</span>
-      </button>
-    </div>
-  </header>
+    </header>
+
+    <!-- Main Viewport (Multi-Screen Container) -->
+    <main class="app-viewport">
+
+      <!-- SCREEN 1: SPLASH (Section 23) -->
+      <section id="screen-splash" class="screen-view">
+        <div class="splash-hero-area">
+          <img src="assets/branding/nova-symbol.svg" class="splash-infinity-symbol" alt="Nova Infinity Soul">
+          <img src="assets/branding/nova-wordmark.svg" class="splash-wordmark" alt="NOVA">
+          <div class="splash-tagline">TRÍ TUỆ VÔ HẠN ĐỒNG HÀNH CÙNG BẠN</div>
+          <p class="splash-subtitle">Suy nghĩ sâu hơn, Hành động thông minh hơn. Cùng Nova, khai mở phiên bản tốt nhất của bạn.</p>
+        </div>
+        <button class="splash-cta-btn" onclick="if(window.appShellInstance) window.appShellInstance.dismissSplash()">
+          <span>Bắt đầu hành trình</span>
+          <span style="font-size: 16px;">→</span>
+        </button>
+      </section>
+
+      <!-- SCREEN 2: HOME / VOICE (Section 24) -->
+      <section id="screen-home" class="screen-view active">
+        <!-- Status Indicator Pill -->
+        <div style="display: flex; justify-content: center; margin-top: 2px;">
+          <div id="statusPill" class="status-pill idle">
+            <span id="statusDot" class="status-dot"></span>
+            <span id="statusLabel">Tôi luôn sẵn sàng lắng nghe</span>
+          </div>
+        </div>
+
+        <!-- 3D Infinity Soul Hero Object (30-42% viewport) -->
+        <div class="home-3d-hero-slot" id="home3dSlot">
+          <div class="webgl-fallback" id="webglFallback">
+            <img src="assets/branding/nova-symbol.svg" alt="Nova Infinity Soul">
+          </div>
+        </div>
+
+        <!-- Status Heading & Subtext -->
+        <div class="home-status-box">
+          <div class="home-assistant-heading">Tôi luôn sẵn sàng lắng nghe</div>
+          <div id="assistantSubtext" class="home-assistant-subtext">Bạn cứ nói, Nova ở đây cùng bạn.</div>
+        </div>
+
+        <!-- Cyber Sound Waveform -->
+        <div id="waveBox" class="cyber-waveform">
+          <div class="cyber-wave-bar"></div>
+          <div class="cyber-wave-bar"></div>
+          <div class="cyber-wave-bar"></div>
+          <div class="cyber-wave-bar"></div>
+          <div class="cyber-wave-bar"></div>
+          <div class="cyber-wave-bar"></div>
+          <div class="cyber-wave-bar"></div>
+        </div>
+
+        <!-- Hero Glowing Microphone Button (Section 25) -->
+        <div id="micHeroWrapper" class="mic-hero-wrapper">
+          <div class="mic-halo-ring"></div>
+          <button id="orbContainer" onclick="handleOrbClick()" class="mic-hero-btn" title="Chạm để nói chuyện với Nova">
+            <svg class="mic-icon-svg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 02-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Push to Talk & Instant Send Row -->
+        <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 4px;">
+          <button id="btnPushToTalk" class="glass-pill" style="padding: 5px 14px; font-size: 11px; font-weight: 600; color: #fff;">
+            <span>🎙️ Giữ để nói</span>
+          </button>
+          <button id="btnInstantSend" onclick="finalizeAndSubmitUtterance()" class="hidden glass-pill" style="padding: 5px 14px; font-size: 11px; font-weight: 700; color: #5AA9FF; border-color: #5AA9FF;">
+            <span>⚡ Gửi ngay</span>
+          </button>
+        </div>
+
+        <!-- Quick Action Pills (Home Screen) -->
+        <div class="quick-action-grid">
+          <div class="quick-action-pill" data-prompt="Gợi ý cho tớ 3 ý tưởng sáng tạo trong ngày hôm nay">
+            <div class="quick-action-icon">✨</div>
+            <div>
+              <div class="quick-action-title">Ý tưởng</div>
+              <div class="quick-action-subtitle">Sáng tạo</div>
+            </div>
+          </div>
+          <div class="quick-action-pill" data-prompt="Hôm nay hãy cùng tớ học tập một chủ đề thú vị nhé">
+            <div class="quick-action-icon">📖</div>
+            <div>
+              <div class="quick-action-title">Học tập</div>
+              <div class="quick-action-subtitle">Hiểu sâu</div>
+            </div>
+          </div>
+          <div class="quick-action-pill" data-prompt="Giúp tớ lên kế hoạch kỷ luật cho ngày hôm nay">
+            <div class="quick-action-icon">🧭</div>
+            <div>
+              <div class="quick-action-title">Kế hoạch</div>
+              <div class="quick-action-subtitle">Đồng hành</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Speech Display Card -->
+        <div class="glass-panel" style="margin-top: 6px; padding: 10px 14px; text-align: center;">
+          <p id="userBubble" class="hidden" style="font-size: 11px; color: var(--nova-blue-bright); margin-bottom: 4px; font-weight: 500;">"..."</p>
+          <p id="novaBubble" style="font-size: 12px; color: var(--nova-silver-100); font-weight: 600; line-height: 1.5;">"Chào Cậu! Tớ là Nova, trợ lý bạn thân thông minh độc lập của cậu nè!"</p>
+        </div>
+
+        <!-- Hidden elements maintaining 100% ID compatibility -->
+        <div style="display: none;">
+          <button id="btnTest5s" onclick="startProactiveTest(5)"></button>
+          <span id="countdownBadge"></span>
+          <span id="currentVoiceLabel"></span>
+          <select id="voiceToneSelect"></select>
+        </div>
+      </section>
+
+      <!-- SCREEN 3: CHAT (Section 26) -->
+      <section id="screen-chat" class="screen-view">
+        <div class="chat-messages-container" id="chatMessages"></div>
+        <div class="chat-composer-bar">
+          <button class="chat-composer-btn" onclick="handleOrbClick()" title="Nói chuyện bằng mic">
+            🎙️
+          </button>
+          <input id="chatInput" type="text" placeholder="Nhắn tin cho Nova..." class="chat-composer-input">
+          <input id="textInput" type="hidden">
+          <button id="chatSendBtn" onclick="handleSendText()" class="chat-composer-btn" title="Gửi">
+            ↑
+          </button>
+        </div>
+      </section>
+
+      <!-- SCREEN 4: EXPLORE (Section 27) -->
+      <section id="screen-explore" class="screen-view">
+        <div style="padding: 12px 14px 4px 14px;">
+          <div style="font-size: 15px; font-weight: 700; color: var(--text-primary);">Khám phá</div>
+          <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Các công cụ AI mạnh mẽ, dành cho mọi khía cạnh cuộc sống.</div>
+        </div>
+        <div class="explore-category-pills" id="exploreCategories"></div>
+        <div class="explore-tools-grid" id="exploreToolsGrid"></div>
+      </section>
+
+      <!-- SCREEN 5: PROFILE (Section 28) -->
+      <section id="screen-profile" class="screen-view"></section>
+
+    </main>
+
+    <!-- Bottom Navigation Bar (Section 29) -->
+    <nav class="app-bottom-nav">
+      <div id="nav-home" class="nav-item active">
+        <div class="nav-icon">🏠</div>
+        <span>Trang chủ</span>
+      </div>
+      <div id="nav-explore" class="nav-item">
+        <div class="nav-icon">🧭</div>
+        <span>Khám phá</span>
+      </div>
+      <div id="nav-chat" class="nav-item">
+        <div class="nav-icon">💬</div>
+        <span>Trò chuyện</span>
+      </div>
+      <div id="nav-profile" class="nav-item">
+        <div class="nav-icon">👤</div>
+        <span>Hồ sơ</span>
+      </div>
+    </nav>
+
+  </div>
 
   <!-- Modal Cấu Hình Kết Nối Máy Chủ & API Key -->
   <div id="serverConfigModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -136,44 +302,40 @@
       </div>
 
       <div class="space-y-2.5 text-xs text-slate-300 max-h-80 overflow-y-auto pr-1">
-        <!-- Cách 1: Nút nguồn / Vuốt góc (Trợ lý mặc định) -->
         <div class="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-2.5">
           <div class="font-bold text-indigo-300 flex items-center gap-1 mb-1">
             <span>👑 1. Trợ Lý Mặc Định Hệ Thống (Mọi lúc, mọi nơi):</span>
           </div>
           <p class="text-[11px] text-slate-300 leading-relaxed">
-            Nhấn nút <b>"⚙️ Mở Cài Đặt"</b> ở màn hình chính (hoặc vào Cài đặt điện thoại ➔ Ứng dụng mặc định ➔ Ứng dụng trợ lý số ➔ Chọn <b>Nova</b>).<br>
-            👉 Sau đó ở <b>bất kỳ đâu</b> (màn hình chính, đang lướt TikTok, Facebook, hay màn hình khóa), chỉ cần <b>Nhấn giữ nút Nguồn 0.5s</b> hoặc <b>Vuốt từ góc dưới màn hình</b> là Nova bung lên và mở mic nghe ngay!
+            Nhấn nút <b>"⚙️ Mở Cài Đặt"</b> ở màn hình chính (hoặc Cài đặt điện thoại ➔ Ứng dụng mặc định ➔ Trợ lý ➔ <b>Nova</b>).<br>
+            👉 Sau đó ở bất kỳ đâu, chỉ cần <b>Nhấn giữ nút Nguồn 0.5s</b> hoặc <b>Vuốt từ góc dưới</b> là gọi Nova ngay!
           </p>
         </div>
 
-        <!-- Cách 2: Trực tiếp gọi "Hey Nova" / "Nova ơi" rảnh tay -->
         <div class="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-2.5">
           <div class="font-bold text-emerald-300 flex items-center gap-1 mb-1">
             <span>🎙️ 2. Gọi "Hey Nova" / "Nova ơi" Rảnh Tay Trực Tiếp:</span>
           </div>
           <p class="text-[11px] text-slate-300 leading-relaxed">
-            Ngay khi đang mở app, cậu không cần bấm nút nào cả! Chỉ cần nói: <i>"Hey Nova"</i> hoặc <i>"Nova ơi"</i> là Nova tự phản hồi <i>"Tớ nghe đây cậu ơi!"</i> và lắng nghe cậu nói tiếp. Hoặc nói liền: <i>"Hey Nova mở YouTube bài hát Em của ngày hôm qua"</i> để Nova thực hiện ngay!
+            Khi đang mở app, chỉ cần nói: <i>"Hey Nova"</i> hoặc <i>"Nova ơi"</i> là Nova phản hồi và lắng nghe bạn!
           </p>
         </div>
 
-        <!-- Cách 3: Qua Google Gemini ("Ok Google, mở Nova") -->
         <div class="bg-sky-950/40 border border-sky-500/30 rounded-xl p-2.5">
           <div class="font-bold text-sky-300 flex items-center gap-1 mb-1">
             <span>🤖 3. Đánh Thức Qua Google Gemini:</span>
           </div>
           <p class="text-[11px] text-slate-300 leading-relaxed">
-            Khi điện thoại đang tắt hoặc khóa màn hình, cậu chỉ cần nói với Gemini: <i>"OK Google, mở Nova"</i>. Nova sẽ tự động bật lên và mở mic lắng nghe lệnh tiếp theo của cậu!
+            Nói với Gemini: <i>"OK Google, mở Nova"</i>. Nova sẽ tự động bật lên và mở mic lắng nghe!
           </p>
         </div>
 
-        <!-- Cách 4: Chuông nhắc việc độc lập -->
         <div class="bg-purple-950/40 border border-purple-500/30 rounded-xl p-2.5">
           <div class="font-bold text-purple-300 flex items-center gap-1 mb-1">
             <span>⏰ 4. Chuông Độc Lập Kể Cả Khi Tắt App:</span>
           </div>
           <p class="text-[11px] text-slate-300 leading-relaxed">
-            Đến giờ hẹn, Nova tự động réo chuông báo thức qua loa ngoài và tự mở mic mời cậu trò chuyện rảnh tay 100%!
+            Đến giờ hẹn, Nova tự động reo chuông báo thức qua loa ngoài và mở mic mời bạn trò chuyện rảnh tay 100%!
           </p>
         </div>
       </div>
@@ -195,122 +357,8 @@
     </div>
   </div>
 
-  <!-- Trung Tâm: Quả Cầu Phát Sáng Nova -->
-  <main class="flex-1 flex flex-col items-center justify-center my-3">
-    <div id="orbContainer" onclick="handleOrbClick()" class="w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative active:scale-95 shadow-2xl">
-      <div class="w-20 h-20 rounded-full bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center shadow-inner">
-        <svg id="micIcon" class="w-8 h-8 text-white drop-shadow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 02-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
-      </div>
-    </div>
-
-    <!-- Nút Giữ để nói (Push to Talk) và Nút Gửi ngay -->
-    <div class="flex items-center justify-center gap-2 mt-2.5">
-      <button id="btnPushToTalk" class="px-3.5 py-1.5 rounded-full bg-indigo-600/70 hover:bg-indigo-600 border border-indigo-400/40 text-white text-xs font-semibold flex items-center gap-1 shadow-md select-none touch-none active:bg-indigo-500 transition">
-        <span>🎙️ Giữ để nói (Không ngắt)</span>
-      </button>
-      <button id="btnInstantSend" onclick="finalizeAndSubmitUtterance()" class="hidden px-3.5 py-1.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 active:scale-95 text-white text-xs font-bold shadow-lg flex items-center gap-1 animate-pulse">
-        <span>⚡ Gửi ngay</span>
-      </button>
-    </div>
-
-    <!-- Sóng Âm Thanh (Waveform) -->
-    <div id="waveBox" class="flex items-center gap-1.5 h-8 mt-2">
-      <div class="w-1 bg-sky-400 rounded-full w-bar h-1"></div>
-      <div class="w-1 bg-indigo-400 rounded-full w-bar h-1"></div>
-      <div class="w-1 bg-purple-400 rounded-full w-bar h-1"></div>
-      <div class="w-1 bg-pink-400 rounded-full w-bar h-1"></div>
-      <div class="w-1 bg-sky-400 rounded-full w-bar h-1"></div>
-    </div>
-
-    <!-- Hộp thoại Hội Thoại -->
-    <div class="mt-2.5 bg-white/10 backdrop-blur-md border border-white/15 px-4 py-2.5 rounded-2xl text-center max-w-xs shadow-xl w-full">
-      <p id="userBubble" class="text-[11px] text-indigo-300 mb-1 hidden font-medium">"..."</p>
-      <p id="novaBubble" class="text-xs text-slate-100 font-semibold leading-relaxed">"Chào Cậu! Tớ là Nova, trợ lý bạn thân thông minh độc lập của cậu nè!"</p>
-    </div>
-  </main>
-
-  <!-- Khu Vực Thử Nghiệm Chuông Nhắc Chủ Động & Hội Thoại Rảnh Tay -->
-  <section class="bg-gradient-to-br from-indigo-900/40 via-purple-900/30 to-slate-900/80 border border-indigo-500/30 rounded-2xl p-3 mb-2.5 shadow-lg">
-    <div class="flex justify-between items-center mb-2">
-      <span class="text-xs font-bold text-white flex items-center gap-1.5">
-        <span>⏰</span> Thử Nghiệm Chuông & Giọng Cuppy
-      </span>
-      <span id="countdownBadge" class="hidden text-[11px] text-amber-300 font-mono font-bold bg-amber-500/20 px-2 py-0.5 rounded-md">
-        00:05s
-      </span>
-    </div>
-    
-    <div class="grid grid-cols-2 gap-2 mb-2">
-      <!-- Nút Test Chuông Nhắc Sau 5 Giây -->
-      <button id="btnTest5s" onclick="startProactiveTest(5)" class="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-semibold py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1 shadow-md">
-        <span>🔔 Test Nhắc Sau 5s</span>
-      </button>
-      
-      <!-- Nút Nghe Thử File Giọng Cuppy Gốc Phòng Thu -->
-      <button onclick="playStudioCuppyVoice()" class="bg-purple-600 hover:bg-purple-500 active:scale-95 text-white text-xs font-semibold py-2 px-2.5 rounded-xl transition flex items-center justify-center gap-1 shadow-md">
-        <span>🎵 Giọng Cuppy Gốc</span>
-      </button>
-    </div>
-
-    <!-- Nút Bấm Nói Trực Tiếp Bằng Mic Nova -->
-    <div class="mb-2">
-      <button onclick="handleOrbClick()" class="w-full bg-gradient-to-r from-sky-600 via-indigo-600 to-purple-600 hover:opacity-90 active:scale-98 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow-lg border border-sky-400/40">
-        <span>🎙️ BẤM NÓI CHUYỆN (MIC NOVA CHUẨN)</span>
-      </button>
-    </div>
-
-    <!-- Nút Thao Tác Nhanh Khi Hội Thoại -->
-    <div class="grid grid-cols-2 gap-2">
-      <button onclick="sendUserUtterance('Có, nói chuyện với tớ đi')" class="bg-emerald-600/80 hover:bg-emerald-500 active:scale-95 text-white text-xs font-semibold py-2 px-2 rounded-xl transition flex items-center justify-center gap-1 shadow">
-        <span>💬 Trả lời "Có"</span>
-      </button>
-      <button onclick="sendUserUtterance('Kết thúc cuộc trò chuyện')" class="bg-rose-600/40 hover:bg-rose-600/60 border border-rose-500/40 text-rose-200 text-xs py-2 px-2 rounded-xl transition flex items-center justify-center gap-1">
-        <span>⏹️ Nói "Kết Thúc"</span>
-      </button>
-    </div>
-  </section>
-
-  <!-- Khung Cài Đặt Trợ Lý 1 Chạm & Tùy Chọn Tông Giọng -->
-  <section class="space-y-2 mb-2.5">
-    <!-- Nút Mở Thẳng Cài Đặt Trợ Lý Android -->
-    <div class="bg-gradient-to-r from-sky-950/70 via-indigo-950/60 to-purple-950/70 border border-sky-500/40 rounded-2xl p-2.5 shadow-lg flex items-center justify-between gap-2">
-      <div class="text-left">
-        <p class="text-xs font-bold text-sky-300 flex items-center gap-1.5">
-          <span>👑</span> Cài Làm Trợ Lý Mặc Định:
-        </p>
-        <p class="text-[10px] text-slate-300 mt-0.5">Nhấn giữ nút Nguồn hoặc Vuốt góc gọi Nova</p>
-      </div>
-      <button onclick="handleOpenAssistantSettings()" class="bg-sky-500 hover:bg-sky-400 active:scale-95 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs shadow transition whitespace-nowrap">
-        ⚙️ Mở Cài Đặt
-      </button>
-    </div>
-
-    <!-- Giọng Trợ Lý Cuppy Gốc -->
-    <div class="bg-gradient-to-r from-purple-950/70 via-indigo-950/60 to-purple-950/70 border border-purple-500/40 rounded-2xl p-2.5 shadow-lg flex items-center justify-between gap-2">
-      <div class="text-left">
-        <p class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
-          <span>🎙️</span> Giọng Trợ Lý Độc Quyền:
-        </p>
-        <p class="text-[10px] text-slate-300 mt-0.5">Giọng Cuppy Gốc (Saydi AI Studio)</p>
-      </div>
-      <button onclick="playStudioCuppyVoice()" class="bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow transition whitespace-nowrap">
-        ▶️ Nghe Thử Giọng Gốc
-      </button>
-    </div>
-  </section>
-
-  <!-- Gõ phím hoặc chip câu lệnh -->
-  <footer class="flex items-center gap-2">
-    <button onclick="handleOrbClick()" title="Bấm nói bằng giọng nói" class="bg-gradient-to-r from-sky-600 to-indigo-600 hover:opacity-90 active:scale-95 text-white px-3 py-2.5 rounded-xl text-sm font-bold shadow flex items-center justify-center">
-      🎙️
-    </button>
-    <input id="textInput" type="text" placeholder="Nhắn tin hoặc hỏi Nova bất kỳ điều gì..." class="flex-1 bg-white/10 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-400">
-    <button onclick="handleSendText()" class="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-xl px-4 py-2.5 text-xs font-semibold shadow">
-      Gửi
-    </button>
-  </footer>
-
   <audio id="cuppyAudioPlayer" playsinline preload="auto"></audio>
+
 
   <script>
     // ==========================================
@@ -1467,6 +1515,9 @@
 
       isSpeakingNow = true;
       stopListening();
+      if (window.chatScreenInstance && text) {
+        window.chatScreenInstance.appendNovaMessage(text);
+      }
 
       let hasTriggeredStart = false;
       const triggerStart = () => {
@@ -1490,6 +1541,7 @@
 
       const orb = document.getElementById("orbContainer");
       const wave = document.getElementById("waveBox");
+      if (typeof NovaVisualState !== "undefined") NovaVisualState.set("speaking");
       if (orb) orb.className = "w-36 h-36 rounded-full speaking-orb cursor-pointer transition-all duration-300 flex items-center justify-center relative shadow-2xl";
       if (wave) wave.classList.add("wave-active");
 
@@ -1501,6 +1553,7 @@
         isFinished = true;
         isSpeakingNow = false;
         currentTTSAudio = null;
+        if (typeof NovaVisualState !== "undefined") NovaVisualState.set("idle");
         if (orb) orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
         if (wave) wave.classList.remove("wave-active");
         if (ownerTurnId && turnController && turnController.isCurrentTurn(ownerTurnId)) {
@@ -2078,6 +2131,9 @@
 
       document.getElementById("userBubble").classList.remove("hidden");
       document.getElementById("userBubble").innerText = `"${cleanText}"`;
+      if (window.chatScreenInstance) {
+        window.chatScreenInstance.appendUserMessage(cleanText);
+      }
 
       // 1. Kiểm tra từ khóa KẾT THÚC
       if (isExitPhrase(commandText) || isExitPhrase(cleanText)) {
@@ -2334,6 +2390,15 @@
     function setListeningVisual(isListening, isWakeOnly = false) {
       const orb = document.getElementById("orbContainer");
       const dot = document.getElementById("statusDot");
+      if (typeof NovaVisualState !== "undefined") {
+        if (isListening && !isWakeOnly) {
+          NovaVisualState.set("listening");
+        } else if (isProcessingUtterance) {
+          NovaVisualState.set("thinking");
+        } else {
+          NovaVisualState.set("idle");
+        }
+      }
       if (!orb || orb.classList.contains("speaking-orb")) return;
 
       if (isListening) {
@@ -2524,11 +2589,13 @@
     }
 
     function handleSendText() {
+      const chatInput = document.getElementById("chatInput");
       const input = document.getElementById("textInput");
-      const val = input.value.trim();
+      const val = (chatInput && chatInput.value) ? chatInput.value.trim() : (input && input.value ? input.value.trim() : "");
       if (val) {
         sendUserUtterance(val);
-        input.value = "";
+        if (input) input.value = "";
+        if (chatInput) chatInput.value = "";
       }
     }
 
@@ -2762,6 +2829,47 @@
       } catch (e) {
         console.warn("[Onboarding] FirstRunWizard error:", e);
       }
+    }
+
+    // =========================================================================
+    // KHỞI TẠO NOVA CYBER INFINITY SOUL 3D & FRONTEND SYSTEMS
+    // =========================================================================
+    try {
+      const container3d = document.getElementById("home3dSlot");
+      if (container3d && typeof NovaScene !== "undefined") {
+        const scene = new NovaScene(container3d);
+        window.novaScene = scene;
+        if (typeof VisualEventBridge !== "undefined") {
+          window.visualBridge = new VisualEventBridge(scene);
+        }
+      }
+    } catch (e3d) {
+      console.warn("[Three] Nova 3D Scene initialization error:", e3d);
+    }
+
+    try {
+      if (typeof AppShell !== "undefined") {
+        window.appShellInstance = new AppShell();
+        window.appShellInstance.init();
+      }
+      if (typeof HomeScreen !== "undefined") {
+        window.homeScreenInstance = new HomeScreen(window.appShellInstance);
+        window.homeScreenInstance.init();
+      }
+      if (typeof ChatScreen !== "undefined") {
+        window.chatScreenInstance = new ChatScreen();
+        window.chatScreenInstance.init();
+      }
+      if (typeof ExploreScreen !== "undefined") {
+        window.exploreScreenInstance = new ExploreScreen(window.appShellInstance);
+        window.exploreScreenInstance.init();
+      }
+      if (typeof ProfileScreen !== "undefined") {
+        window.profileScreenInstance = new ProfileScreen();
+        window.profileScreenInstance.init();
+      }
+    } catch (eUi) {
+      console.warn("[UI] AppShell & Screens initialization error:", eUi);
     }
   </script>
 </body>

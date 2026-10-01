@@ -1,0 +1,512 @@
+/* ===================================================================
+   NOVA UI COMPONENTS (Section 25, 26, 27, 28)
+   =================================================================== */
+
+/* -------------------------------------------------------------------
+   1. HERO MICROPHONE BUTTON (Section 25)
+   Size: 76-88px, outer ring, halo, button surface, mic icon
+   ------------------------------------------------------------------- */
+.mic-hero-wrapper {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 12px auto;
+}
+
+.mic-halo-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid rgba(90, 169, 255, 0.25);
+  box-shadow: 0 0 20px rgba(90, 169, 255, 0.15);
+  transition: all 0.3s ease;
+  pointer-events: none;
+}
+
+.mic-hero-wrapper.active .mic-halo-ring {
+  border-color: var(--nova-blue);
+  box-shadow: 0 0 35px rgba(90, 169, 255, 0.65), inset 0 0 15px rgba(90, 169, 255, 0.3);
+  animation: mic-halo-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes mic-halo-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+
+.mic-hero-btn {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(
+    135deg,
+    rgba(25, 36, 52, 0.85) 0%,
+    rgba(10, 15, 25, 0.95) 100%
+  );
+  border: 1.5px solid rgba(190, 220, 255, 0.28);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  transition: transform var(--timing-tap) var(--ease-spring),
+              border-color var(--timing-tap) ease,
+              box-shadow var(--timing-tap) ease;
+  z-index: 2;
+}
+
+.mic-hero-btn:active {
+  transform: scale(0.94);
+  border-color: var(--nova-blue-bright);
+}
+
+.mic-hero-wrapper.active .mic-hero-btn {
+  border-color: var(--nova-blue);
+  box-shadow: 0 0 28px rgba(90, 169, 255, 0.5), inset 0 0 10px rgba(90, 169, 255, 0.3);
+}
+
+.mic-icon-svg {
+  width: 32px;
+  height: 32px;
+  color: var(--nova-silver-200);
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.mic-hero-wrapper.active .mic-icon-svg {
+  color: var(--nova-blue-bright);
+  filter: drop-shadow(0 0 8px var(--nova-blue));
+}
+
+/* -------------------------------------------------------------------
+   2. QUICK ACTION PILLS (Home Screen)
+   ------------------------------------------------------------------- */
+.quick-action-grid {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 4px;
+  scrollbar-width: none;
+}
+
+.quick-action-grid::-webkit-scrollbar {
+  display: none;
+}
+
+.quick-action-pill {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: linear-gradient(180deg, rgba(18, 26, 40, 0.7) 0%, rgba(8, 12, 20, 0.85) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: all var(--timing-card) var(--ease-spring);
+}
+
+.quick-action-pill:active {
+  transform: scale(0.96);
+  border-color: var(--border-active);
+  background: rgba(22, 34, 52, 0.85);
+}
+
+.quick-action-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nova-blue-bright);
+}
+
+.quick-action-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nova-silver-200);
+}
+
+.quick-action-subtitle {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* -------------------------------------------------------------------
+   3. CHAT MESSAGES & ACTION CARDS (Section 26)
+   ------------------------------------------------------------------- */
+.chat-messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-row {
+  display: flex;
+  gap: 10px;
+  max-width: 90%;
+  animation: msg-appear 0.25s var(--ease-spring);
+}
+
+@keyframes msg-appear {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.message-row.user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.message-row.nova {
+  align-self: flex-start;
+}
+
+.message-avatar-mini {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #0A101C;
+  border: 1px solid rgba(190, 220, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 4px;
+}
+
+.message-bubble {
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.message-row.user .message-bubble {
+  background: linear-gradient(135deg, rgba(30, 50, 80, 0.85) 0%, rgba(16, 28, 48, 0.9) 100%);
+  border: 1px solid rgba(90, 169, 255, 0.3);
+  color: var(--text-primary);
+  border-top-right-radius: 4px;
+}
+
+.message-row.nova .message-bubble {
+  background: linear-gradient(180deg, rgba(16, 24, 38, 0.8) 0%, rgba(8, 12, 20, 0.88) 100%);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-top-left-radius: 4px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* Actionable List Card (Ưu tiên hôm nay / Nhiệm vụ) */
+.action-card {
+  margin-top: 8px;
+  background: rgba(10, 16, 26, 0.85);
+  border: 1px solid rgba(90, 169, 255, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--nova-blue-bright);
+}
+
+.action-card-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.action-card-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(90, 169, 255, 0.2);
+  color: var(--nova-blue-bright);
+  font-size: 10px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Chat Input Bar */
+.chat-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(8, 12, 20, 0.92);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.chat-composer-input {
+  flex: 1;
+  background: rgba(16, 24, 38, 0.7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.chat-composer-input:focus {
+  border-color: var(--nova-blue);
+}
+
+.chat-composer-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(18, 28, 44, 0.8);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  transition: all var(--timing-tap) ease;
+}
+
+.chat-composer-btn:active {
+  transform: scale(0.92);
+  border-color: var(--nova-blue);
+  color: var(--nova-blue-bright);
+}
+
+.chat-composer-btn.send-active {
+  background: linear-gradient(135deg, #5AA9FF 0%, #2A75D3 100%);
+  color: #FFFFFF;
+  border: none;
+  box-shadow: 0 0 14px rgba(90, 169, 255, 0.4);
+}
+
+/* -------------------------------------------------------------------
+   4. EXPLORE GRID & TOOLS (Section 27)
+   ------------------------------------------------------------------- */
+.explore-category-pills {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 12px;
+  scrollbar-width: none;
+}
+
+.explore-pill {
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(14, 20, 32, 0.6);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.explore-pill.active {
+  background: linear-gradient(135deg, rgba(90, 169, 255, 0.25) 0%, rgba(20, 35, 60, 0.5) 100%);
+  border-color: var(--nova-blue);
+  color: var(--nova-silver-100);
+}
+
+.explore-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.explore-card {
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(16, 24, 38, 0.65) 0%, rgba(8, 12, 20, 0.85) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform var(--timing-card) var(--ease-spring), border-color 0.2s ease;
+}
+
+.explore-card:active {
+  transform: scale(0.97);
+  border-color: var(--border-active);
+}
+
+.explore-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-xs);
+  background: rgba(90, 169, 255, 0.12);
+  border: 1px solid rgba(90, 169, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nova-blue-bright);
+}
+
+.explore-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--nova-silver-100);
+}
+
+.explore-card-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* -------------------------------------------------------------------
+   5. PROFILE & SETTINGS (Section 28)
+   ------------------------------------------------------------------- */
+.profile-content {
+  padding: 16px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.profile-hero-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(20, 32, 50, 0.7) 0%, rgba(10, 16, 26, 0.88) 100%);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.profile-avatar-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--nova-blue);
+  box-shadow: 0 0 16px rgba(90, 169, 255, 0.4);
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-avatar-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #0E1624;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.profile-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.profile-badge-pro {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #FFD166;
+  background: rgba(255, 209, 102, 0.12);
+  border: 1px solid rgba(255, 209, 102, 0.3);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  margin-top: 4px;
+}
+
+/* Stats Row */
+.profile-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.profile-stat-box {
+  padding: 12px 8px;
+  text-align: center;
+  background: rgba(12, 18, 30, 0.65);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--nova-silver-100);
+}
+
+.stat-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* Settings Items */
+.settings-group {
+  background: rgba(12, 18, 28, 0.7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(190, 215, 255, 0.06);
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: background-color 0.15s ease;
+}
+
+.settings-item:last-child {
+  border-bottom: none;
+}
+
+.settings-item:active {
+  background: rgba(24, 36, 56, 0.5);
+}
+
+.settings-item-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-item-icon {
+  font-size: 16px;
+  width: 22px;
+  text-align: center;
+  color: var(--nova-blue-bright);
+}

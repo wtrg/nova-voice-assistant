@@ -1,0 +1,84 @@
+/* ===================================================================
+   NOVA CYBER INFINITY SOUL — DESIGN SYSTEM TOKENS
+   Section 2 & 30 of Design System Specification
+   =================================================================== */
+
+:root {
+  /* Core Brand Dark Backgrounds */
+  --nova-black: #030508;
+  --nova-deep: #070B12;
+  --bg: #030508;
+  --surface: #070B12;
+  --surface-panel: #0A101A;
+  --surface-soft: rgba(10, 16, 26, 0.82);
+
+  /* Silver / Chrome Metallic Palette */
+  --nova-silver-100: #FFFFFF;
+  --nova-silver-200: #E8EDF4;
+  --nova-silver-300: #C9D0DB;
+  --nova-silver-400: #9CA7B6;
+  --silver: #E8EDF4;
+  --silver-muted: #9CA7B6;
+
+  /* Electric / Energy Blue Accents (Used ONLY for soul core, active states, focus, HUD lines) */
+  --nova-blue: #5AA9FF;
+  --nova-blue-bright: #8CC8FF;
+  --nova-energy: #B6DEFF;
+  --energy: #5AA9FF;
+  --energy-bright: #8CC8FF;
+  --energy-soft: rgba(90, 169, 255, 0.22);
+  --energy-glow: rgba(90, 169, 255, 0.45);
+
+  /* Status Indicators */
+  --status-idle: #8CC8FF;
+  --status-listening: #5AA9FF;
+  --status-thinking: #B6DEFF;
+  --status-speaking: #8CC8FF;
+  --status-success: #52E1A3;
+  --status-error: #FF4D6D;
+
+  /* Glass Borders & Outlines */
+  --border: rgba(190, 215, 255, 0.12);
+  --border-strong: rgba(190, 215, 255, 0.24);
+  --border-active: rgba(90, 169, 255, 0.55);
+
+  /* Text Hierarchies */
+  --text: #F6F9FF;
+  --text-primary: #FFFFFF;
+  --text-secondary: #C9D0DB;
+  --text-muted: #9CA7B6;
+  --text-dim: #6B7787;
+
+  /* Radius Tokens */
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --radius-full: 9999px;
+
+  /* Elevation & Glow Shadows */
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-energy: 0 0 28px rgba(90, 169, 255, 0.25);
+  --shadow-energy-strong: 0 0 45px rgba(90, 169, 255, 0.55);
+  --shadow-core-pulse: 0 0 50px rgba(140, 200, 255, 0.85);
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Motion & Timing Tokens (Section 32) */
+  --timing-tap: 110ms;
+  --timing-card: 190ms;
+  --timing-modal: 240ms;
+  --timing-screen: 280ms;
+  --timing-hero: 800ms;
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Safe Area Insets for Android Notch / Edge-to-Edge */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
