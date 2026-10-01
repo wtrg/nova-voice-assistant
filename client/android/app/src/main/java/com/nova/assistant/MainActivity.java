@@ -357,6 +357,10 @@ public class MainActivity extends BridgeActivity {
                     // Đặt chuông báo thức phần cứng qua AlarmManager khi tắt app (Phase 1, 2, 3 Canonical Reminder ID & ACK)
                     @JavascriptInterface
                     public String scheduleNativeAlarm(int id, String title, long timestampMillis) {
+                        long nowMs = System.currentTimeMillis();
+                        if (timestampMillis <= 0 || timestampMillis < (nowMs - 60000L) || timestampMillis > (nowMs + 100L * 365 * 24 * 3600 * 1000L)) {
+                            return "{\"ok\":false,\"reminder_id\":\"" + id + "\",\"error_code\":\"INVALID_TIMESTAMP\",\"message\":\"Thời gian đặt lịch không hợp lệ hoặc đã qua\"}";
+                        }
                         boolean exact = canScheduleExactAlarms();
                         boolean success = scheduleAlarmDirect(MainActivity.this, id, title, timestampMillis);
                         return "{\"ok\":" + success + ",\"reminder_id\":\"" + id + "\",\"pending_intent_id\":" + id + ",\"exact\":" + exact + ",\"scheduled_at_epoch_ms\":" + timestampMillis + "}";
@@ -388,6 +392,11 @@ public class MainActivity extends BridgeActivity {
                                 }
                             }
 
+                            long nowMs = System.currentTimeMillis();
+                            if (timestampMillis <= 0 || timestampMillis < (nowMs - 60000L) || timestampMillis > (nowMs + 100L * 365 * 24 * 3600 * 1000L)) {
+                                return "{\"ok\":false,\"reminder_id\":\"" + reminderId + "\",\"error_code\":\"INVALID_TIMESTAMP\",\"message\":\"Thời gian đặt lịch không hợp lệ hoặc đã qua\"}";
+                            }
+
                             boolean exact = canScheduleExactAlarms();
                             boolean success = scheduleAlarmDirect(MainActivity.this, reminderId, title, timestampMillis);
                             if (success) {
@@ -409,13 +418,20 @@ public class MainActivity extends BridgeActivity {
                     @JavascriptInterface
                     public void cancelNativeAlarm(String reminderIdOrInt) {
                         if (reminderIdOrInt == null || reminderIdOrInt.isEmpty()) return;
-                        try {
-                            int id = Integer.parseInt(reminderIdOrInt);
+                        SharedPreferences prefs = getSharedPreferences("nova_alarms_store", Context.MODE_PRIVATE);
+                        int id = prefs.getInt("rem_code_" + reminderIdOrInt, -1);
+                        if (id != -1) {
                             cancelAlarmDirect(MainActivity.this, id);
-                        } catch (NumberFormatException e) {
-                            int code = ReminderId.toRequestCode(reminderIdOrInt);
-                            cancelAlarmDirect(MainActivity.this, code);
+                        } else {
+                            try {
+                                int code = Integer.parseInt(reminderIdOrInt);
+                                cancelAlarmDirect(MainActivity.this, code);
+                            } catch (NumberFormatException e) {
+                                int code = ReminderId.toRequestCode(reminderIdOrInt);
+                                cancelAlarmDirect(MainActivity.this, code);
+                            }
                         }
+                        removeAlarmFromPrefs(MainActivity.this, reminderIdOrInt);
                     }
 
                     // Nhận quyền điều khiển chuông từ WebView (Safe Alarm Handoff Phase 5)
@@ -1109,15 +1125,22 @@ public class MainActivity extends BridgeActivity {
     }
 
     // =========================================================================
-    // QUẢN LÝ BÁO THỨC PHẦN CỨNG & KHÔI PHỤC SAU REBOOT (F-08, F-09, STAGE 8)
+    // QUẢN LÝ BÁO THỨC PHẦN CỨNG & KHÔI PHỤC SAU REBOOT (F-08, F-09, STAGE 8, P1-05)
     // =========================================================================
-    public static void saveAlarmToPrefs(Context context, String reminderId, String title, long timestampMillis) {
+    public static void saveAlarmToPrefs(Context context, String reminderId, String title, long timestampMillis, int id) {
         if (reminderId == null || reminderId.isEmpty()) return;
         try {
-            int id = ReminderId.toRequestCode(reminderId);
             SharedPreferences prefs = context.getSharedPreferences("nova_alarms_store", Context.MODE_PRIVATE);
-            prefs.edit().putString("alarm_" + id, reminderId + "|||" + title + "|||" + timestampMillis).apply();
+            prefs.edit()
+                .putString("alarm_" + id, reminderId + "|||" + title + "|||" + timestampMillis)
+                .putInt("rem_code_" + reminderId, id)
+                .apply();
         } catch (Exception ignored) {}
+    }
+
+    public static void saveAlarmToPrefs(Context context, String reminderId, String title, long timestampMillis) {
+        int id = ReminderId.toRequestCode(reminderId);
+        saveAlarmToPrefs(context, reminderId, title, timestampMillis, id);
     }
 
     public static void saveAlarmToPrefs(Context context, int id, String title, long timestampMillis) {
@@ -1134,8 +1157,59 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {}
     }
 
+    public static void removeAlarmFromPrefs(Context context, String reminderId) {
+        if (reminderId == null || reminderId.isEmpty()) return;
+        try {
+            SharedPreferences prefs = context.getSharedPreferences("nova_alarms_store", Context.MODE_PRIVATE);
+            int id = prefs.getInt("rem_code_" + reminderId, -1);
+            if (id == -1) {
+                try {
+                    id = Integer.parseInt(reminderId);
+                } catch (NumberFormatException e) {
+                    id = ReminderId.toRequestCode(reminderId);
+                }
+            }
+            prefs.edit()
+                .remove("alarm_" + id)
+                .remove("rem_code_" + reminderId)
+                .apply();
+        } catch (Exception ignored) {}
+    }
+
     public static boolean scheduleAlarmDirect(Context context, String reminderId, String title, long timestampMillis) {
+        long nowMs = System.currentTimeMillis();
+        if (timestampMillis <= 0 || timestampMillis < (nowMs - 60000L) || timestampMillis > (nowMs + 100L * 365 * 24 * 3600 * 1000L)) {
+            return false;
+        }
+
+        SharedPreferences prefs = context.getSharedPreferences("nova_alarms_store", Context.MODE_PRIVATE);
         int id = ReminderId.toRequestCode(reminderId);
+        int existingAssigned = prefs.getInt("rem_code_" + reminderId, -1);
+        if (existingAssigned != -1) {
+            id = existingAssigned;
+        } else {
+            String existing = prefs.getString("alarm_" + id, null);
+            if (existing != null) {
+                String[] parts = existing.split("\\|\\|\\|");
+                if (parts.length > 0 && !reminderId.equals(parts[0])) {
+                    int candidate = id;
+                    for (int p = 0; p < 100; p++) {
+                        candidate = (candidate + 1) & 0x7FFFFFFF;
+                        String candExisting = prefs.getString("alarm_" + candidate, null);
+                        if (candExisting == null) {
+                            id = candidate;
+                            break;
+                        }
+                        String[] candParts = candExisting.split("\\|\\|\\|");
+                        if (candParts.length > 0 && reminderId.equals(candParts[0])) {
+                            id = candidate;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         try {
             AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
             if (alarmManager == null) return false;
@@ -1170,7 +1244,7 @@ public class MainActivity extends BridgeActivity {
                     );
                     AlarmManager.AlarmClockInfo clockInfo = new AlarmManager.AlarmClockInfo(timestampMillis, showPendingIntent);
                     alarmManager.setAlarmClock(clockInfo, pendingIntent);
-                    saveAlarmToPrefs(context, reminderId, title, timestampMillis);
+                    saveAlarmToPrefs(context, reminderId, title, timestampMillis, id);
                     return true;
                 } catch (SecurityException se) {
                     Log.w("NovaAlarm", "SecurityException trên setAlarmClock, tự động fallback", se);
@@ -1182,7 +1256,7 @@ public class MainActivity extends BridgeActivity {
             } else {
                 alarmManager.set(AlarmManager.RTC_WAKEUP, timestampMillis, pendingIntent);
             }
-            saveAlarmToPrefs(context, reminderId, title, timestampMillis);
+            saveAlarmToPrefs(context, reminderId, title, timestampMillis, id);
             return true;
         } catch (Exception e) {
             Log.e("NovaAlarm", "Lỗi đặt báo thức canonical:", e);
@@ -1191,6 +1265,10 @@ public class MainActivity extends BridgeActivity {
     }
 
     public static boolean scheduleAlarmDirect(Context context, int id, String title, long timestampMillis) {
+        long nowMs = System.currentTimeMillis();
+        if (timestampMillis <= 0 || timestampMillis < (nowMs - 60000L) || timestampMillis > (nowMs + 100L * 365 * 24 * 3600 * 1000L)) {
+            return false;
+        }
         try {
             AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
             if (alarmManager == null) return false;

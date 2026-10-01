@@ -18,6 +18,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.os.Vibrator;
+import android.os.VibrationEffect;
 import android.util.Log;
 import androidx.core.app.NotificationCompat;
 import com.nova.assistant.reminder.ReminderId;
@@ -125,11 +127,9 @@ public class NovaAlarmService extends Service {
             if (taskTitle == null || taskTitle.isEmpty()) taskTitle = "Nhắc nhở";
 
             long snoozeTime = System.currentTimeMillis() + 5 * 60 * 1000;
-            if (reminderId != null && !reminderId.isEmpty()) {
-                MainActivity.scheduleAlarmDirect(this, reminderId, taskTitle + " (báo lại)", snoozeTime);
-            } else {
-                MainActivity.scheduleAlarmDirect(this, taskId > 0 ? taskId : (int) (System.currentTimeMillis() % 1000000), taskTitle + " (báo lại)", snoozeTime);
-            }
+            // P1-06: New snooze reminder has unique canonical reminder_id
+            String snoozeReminderId = "rem_snz_" + UUID.randomUUID().toString();
+            MainActivity.scheduleAlarmDirect(this, snoozeReminderId, taskTitle + " (báo lại)", snoozeTime);
 
             currentState = SessionState.STOPPED;
             finishAlarmSession();
@@ -312,13 +312,36 @@ public class NovaAlarmService extends Service {
                 fallbackRingtone.play();
                 Log.i(TAG, "Fallback system ringtone playing successfully");
             } else {
-                Log.w(TAG, "Both primary audio and fallback ringtone unavailable");
-                finishAlarmSession();
+                Log.w(TAG, "Both primary audio and fallback ringtone unavailable; maintaining foreground notification and vibration alert");
+                triggerVibrationAlert();
             }
         } catch (Exception ex) {
-            Log.e(TAG, "Error playing fallback ringtone", ex);
-            finishAlarmSession();
+            Log.e(TAG, "Error playing fallback ringtone; maintaining foreground notification and vibration alert", ex);
+            triggerVibrationAlert();
         }
+    }
+
+    private void triggerVibrationAlert() {
+        try {
+            Vibrator vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (vibrator != null && vibrator.hasVibrator()) {
+                long[] pattern = new long[]{0, 500, 250, 500, 250, 500};
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0));
+                } else {
+                    vibrator.vibrate(pattern, 0);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void stopVibrationAlert() {
+        try {
+            Vibrator vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (vibrator != null) {
+                vibrator.cancel();
+            }
+        } catch (Exception ignored) {}
     }
 
     private void acquireWakeLock() {
@@ -383,6 +406,7 @@ public class NovaAlarmService extends Service {
         currentState = SessionState.IDLE;
         releaseMediaPlayer();
         stopFallbackRingtone();
+        stopVibrationAlert();
         releaseWakeLock();
         try {
             stopForeground(true);
