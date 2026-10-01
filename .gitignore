@@ -53,6 +53,7 @@ server/data/cuppy_cache/
 
 # Voice References and Private Voice Assets (Protection)
 server/data/voices/*.wav
+!server/data/voices/cuppy_sample.wav
 server/private/
 *.voice.wav
 

@@ -2746,6 +2746,9 @@
       document.getElementById("serverConfigModal").classList.add("hidden");
     }
 
+    const DEFAULT_LOCAL_URL = "http://192.168.100.48:8000";
+    const DEFAULT_TUNNEL_URL = "";
+
     function setQuickServerUrl(type) {
       const inputUrl = document.getElementById("inputServerUrl");
       if (type === 'tunnel') {
@@ -2800,6 +2803,9 @@
 
       if (targetUrl) {
         localStorage.setItem("nova_backend_url", targetUrl);
+        if (typeof AppConfig !== 'undefined' && typeof AppConfig.setApiBaseUrl === 'function') {
+          AppConfig.setApiBaseUrl(targetUrl);
+        }
         if (window.AndroidNova && typeof window.AndroidNova.setServerBaseUrl === 'function') {
           try { window.AndroidNova.setServerBaseUrl(targetUrl); } catch(e){}
         }
