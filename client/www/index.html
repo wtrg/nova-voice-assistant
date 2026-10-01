@@ -375,6 +375,9 @@
           req.cancelled = true;
         }
         activeAudioRequests.clear();
+      if (window._currentAudioTimeoutId) {
+        clearTimeout(window._currentAudioTimeoutId);
+        window._currentAudioTimeoutId = null;
       }
       window._nativeTTSFinishedCallback = null;
       window.onNovaSpeechStarted = null;
@@ -1028,23 +1031,39 @@
       audio.defaultPlaybackRate = 1.10;
       audio.playbackRate = 1.10;
       currentTTSAudio = audio;
-      let hasStarted = false;
+      if (window._currentAudioTimeoutId) {
+        clearTimeout(window._currentAudioTimeoutId);
+        window._currentAudioTimeoutId = null;
+      }
 
       audio.onplay = () => {
+        if (window._currentAudioTimeoutId) {
+          clearTimeout(window._currentAudioTimeoutId);
+          window._currentAudioTimeoutId = null;
+        }
         audio.playbackRate = 1.10;
         hasStarted = true;
         if (onStart) onStart();
       };
       audio.onended = () => {
+        if (window._currentAudioTimeoutId) {
+          clearTimeout(window._currentAudioTimeoutId);
+          window._currentAudioTimeoutId = null;
+        }
         currentTTSAudio = null;
         onEnded();
       };
       audio.onerror = (e) => {
+        if (window._currentAudioTimeoutId) {
+          clearTimeout(window._currentAudioTimeoutId);
+          window._currentAudioTimeoutId = null;
+        }
         currentTTSAudio = null;
         onError(e);
       };
 
       const timeoutId = setTimeout(() => {
+        window._currentAudioTimeoutId = null;
         if (!hasStarted) {
           console.warn("Audio stream timeout:", url);
           try { audio.pause(); } catch(e){}
@@ -1052,12 +1071,16 @@
           onError(new Error("Timeout"));
         }
       }, timeoutMs);
+      window._currentAudioTimeoutId = timeoutId;
 
       audio.src = url;
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(err => {
-          clearTimeout(timeoutId);
+          if (window._currentAudioTimeoutId) {
+            clearTimeout(window._currentAudioTimeoutId);
+            window._currentAudioTimeoutId = null;
+          }
           currentTTSAudio = null;
           onError(err);
         });
@@ -1183,8 +1206,7 @@
           if (isDone) return;
           isDone = true;
           if (audioRegistry) {
-            audioRegistry.clearRequestTimers(requestId);
-            audioRegistry.cancelRequest(requestId);
+            audioRegistry.finalizeRequest(requestId);
           } else {
             if (reqEntry.connectTimeout) {
               clearTimeout(reqEntry.connectTimeout);
@@ -1192,9 +1214,6 @@
             }
             activeAudioRequests.delete(requestId);
           }
-          window._nativeTTSFinishedCallback = null;
-          window.onNativeAudioFailed = null;
-          window.onNovaSpeechStarted = null;
           if (reqEntry.cancelled) {
             console.log(`[Audio] Ignored onDone for cancelled request: ${requestId}`);
             return;
@@ -1210,8 +1229,7 @@
           if (isDone) return;
           isDone = true;
           if (audioRegistry) {
-            audioRegistry.clearRequestTimers(requestId);
-            audioRegistry.cancelRequest(requestId);
+            audioRegistry.finalizeRequest(requestId);
           } else {
             if (reqEntry.connectTimeout) {
               clearTimeout(reqEntry.connectTimeout);
@@ -1219,9 +1237,6 @@
             }
             activeAudioRequests.delete(requestId);
           }
-          window._nativeTTSFinishedCallback = null;
-          window.onNativeAudioFailed = null;
-          window.onNovaSpeechStarted = null;
           if (reqEntry.cancelled || !isOwnerTurnCurrent(ownerTurnId)) {
             console.log(`[Audio] Ignored onAudioFailed for cancelled/stale request: ${requestId}`);
             return;
@@ -1236,6 +1251,7 @@
           const fallbackReqId = (turnController && currentTurnId) ? turnController.createTtsRequest(currentTurnId) : ('tts_fb_' + Date.now());
           const fallbackEntry = audioRegistry ? audioRegistry.registerRequest(fallbackReqId, {
             turnId: currentTurnId,
+            ownerTurnId: ownerTurnId,
             isFallback: true,
             onDone: finishChunk,
             onFail: finishChunk
@@ -1278,11 +1294,8 @@
         reqEntry.onDone = onDoneCallback;
         reqEntry.onFail = onAudioFailed;
 
-        window._nativeTTSFinishedCallback = onDoneCallback;
-        window.onNovaSpeechStarted = onStartedCallback;
-        window.onNativeAudioFailed = onAudioFailed;
-
         // Bao gồm cả thời gian server sinh clip Cuppy lần đầu; hủy khi MediaPlayer phát.
+
         if (audioRegistry) {
           reqEntry.connectTimeout = audioRegistry.scheduleRequestTimer(requestId, () => {
             if (reqEntry.cancelled) return;
@@ -1467,9 +1480,15 @@
       };
 
       // Bảo vệ: Nếu sau 250ms audio chưa kịp phát, vẫn hiển thị chữ để người dùng không phải chờ lâu
-      setTimeout(() => {
-        if (isOwnerTurnCurrent(ownerTurnId)) triggerStart();
-      }, 250);
+      if (audioRegistry && ownerTurnId) {
+        audioRegistry.scheduleTurnTimer(ownerTurnId, () => {
+          if (isOwnerTurnCurrent(ownerTurnId)) triggerStart();
+        }, 250, turnController);
+      } else {
+        setTimeout(() => {
+          if (isOwnerTurnCurrent(ownerTurnId)) triggerStart();
+        }, 250);
+      }
 
       const orb = document.getElementById("orbContainer");
       const wave = document.getElementById("waveBox");
@@ -1622,22 +1641,43 @@
           if (window.AndroidNova && typeof window.AndroidNova.setServerBaseUrl === 'function') {
             try { window.AndroidNova.setServerBaseUrl(baseUrl); } catch(e){}
           }
-          const controller = new AbortController();
-          // Backend có thể chờ Gemini đến 12 giây; client cần thêm thời gian cho tunnel và JSON.
-          timeoutId = setTimeout(() => controller.abort(), 18000);
           const currentTurnId = (turnController && turnController.activeTurnId) ? turnController.activeTurnId : null;
-          const res = await fetch(`${baseUrl}/api/dialogue`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              user_text: userText,
-              in_conversation: inConversationMode,
-              session_id: getDeviceSessionId(),
-              generate_audio: false,
-              turn_id: currentTurnId
-            }),
-            signal: controller.signal
+          const reqPayload = JSON.stringify({
+            user_text: userText,
+            in_conversation: inConversationMode,
+            session_id: getDeviceSessionId(),
+            generate_audio: false,
+            turn_id: currentTurnId
           });
+
+          const retryDelays = [300, 600, 1200];
+          let retryAttempt = 0;
+          let res = null;
+
+          while (true) {
+            const controller = new AbortController();
+            timeoutId = setTimeout(() => controller.abort(), 18000);
+            res = await fetch(`${baseUrl}/api/dialogue`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: reqPayload,
+              signal: controller.signal
+            });
+            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+
+            if (res.status === 409) {
+              let body = {};
+              try { body = await res.clone().json(); } catch(e){}
+              if (body.retryable === true && retryAttempt < retryDelays.length) {
+                const delay = retryDelays[retryAttempt++];
+                console.log(`[Backend] Turn đang được xử lý, thử lại sau ${delay}ms (lần ${retryAttempt})...`);
+                await new Promise(r => setTimeout(r, delay));
+                continue;
+              }
+            }
+            break;
+          }
+
           if (!res.ok) {
             let body = {};
             try { body = await res.json(); } catch (e) {}

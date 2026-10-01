@@ -78,24 +78,102 @@ class AudioRequestRegistry {
   }
 
   /**
-   * Hủy một request cụ thể
+   * Hoàn tất hoặc kết thúc request bình thường (kể cả fail)
+   * Xóa timers, dọn dẹp entry khỏi activeRequests nhưng KHÔNG đánh dấu cancelled
    */
-  cancelRequest(requestId) {
+  finalizeRequest(requestId) {
     if (!requestId) return;
     const req = this.activeRequests.get(requestId);
     if (req) {
-      req.cancelled = true;
       this.clearRequestTimers(requestId);
       this.activeRequests.delete(requestId);
     }
   }
 
   /**
-   * Hủy toàn bộ request âm thanh đang hoạt động khi người dùng ngắt lời
+   * Hủy một request cụ thể do user ngắt lời hoặc stale turn
    */
-  cancelAllRequests() {
+  cancelRequest(requestId, reason = "user_cancel") {
+    if (!requestId) return;
+    const req = this.activeRequests.get(requestId);
+    if (req) {
+      req.cancelled = true;
+      req.cancelReason = reason;
+      this.clearRequestTimers(requestId);
+      this.activeRequests.delete(requestId);
+    }
+  }
+
+  /**
+   * Lên lịch timer gắn với turnId (dành cho timer cấp turn như UI timeout 250ms)
+   */
+  scheduleTurnTimer(turnId, fn, delayMs, turnController = null) {
+    if (!turnId) return null;
+    if (!this.turnTimers) {
+      this.turnTimers = new Map();
+    }
+    if (!this.turnTimers.has(turnId)) {
+      this.turnTimers.set(turnId, new Set());
+    }
+
+    let timerId = null;
+    timerId = setTimeout(() => {
+      const set = this.turnTimers ? this.turnTimers.get(turnId) : null;
+      if (set) {
+        set.delete(timerId);
+      }
+      if (turnController && !turnController.isCurrentTurn(turnId)) {
+        return;
+      }
+      fn();
+    }, delayMs);
+
+    this.turnTimers.get(turnId).add(timerId);
+    return timerId;
+  }
+
+  /**
+   * Xóa toàn bộ timer thuộc turnId
+   */
+  clearTurnTimers(turnId) {
+    if (!turnId || !this.turnTimers || !this.turnTimers.has(turnId)) return;
+    const timers = this.turnTimers.get(turnId);
+    for (const id of timers) {
+      clearTimeout(id);
+    }
+    timers.clear();
+    this.turnTimers.delete(turnId);
+  }
+
+  /**
+   * Hủy toàn bộ request và timer của một turn cụ thể
+   */
+  cancelAllForTurn(turnId, reason = "turn_cancelled") {
+    if (!turnId) return;
+    this.clearTurnTimers(turnId);
+    for (const [reqId, req] of this.activeRequests.entries()) {
+      if (req.turnId === turnId) {
+        this.cancelRequest(reqId, reason);
+      }
+    }
+  }
+
+  /**
+   * Hủy toàn bộ request âm thanh và timer đang hoạt động khi người dùng ngắt lời
+   */
+  cancelAllRequests(reason = "global_cancel") {
+    if (this.turnTimers) {
+      for (const [tid, timers] of this.turnTimers.entries()) {
+        for (const id of timers) {
+          clearTimeout(id);
+        }
+        timers.clear();
+      }
+      this.turnTimers.clear();
+    }
     for (const [reqId, req] of this.activeRequests.entries()) {
       req.cancelled = true;
+      req.cancelReason = reason;
       if (req.timers) {
         for (const id of req.timers) {
           clearTimeout(id);
