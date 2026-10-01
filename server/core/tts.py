@@ -41,7 +41,17 @@ class SaydiKeyPool:
     """Quản lý danh sách nhiều API key Saydi AI với cơ chế xoay vòng và tự động chuyển key khi hết quota"""
     def __init__(self, raw_keys: str):
         import re
-        self.keys = [k.strip() for k in re.split(r'[,;\n\r]+', raw_keys or "") if k.strip()]
+        keys = []
+        if raw_keys:
+            keys.extend([k.strip() for k in re.split(r'[,;\n\r]+', raw_keys) if k.strip()])
+        # Quét thêm tất cả biến môi trường có tiền tố SAYDI_API_KEY (như SAYDI_API_KEY_1, SAYDI_API_KEY_2...)
+        for env_k, env_v in os.environ.items():
+            if env_k.startswith("SAYDI_API_KEY") and env_v.strip():
+                sub_keys = [k.strip() for k in re.split(r'[,;\n\r]+', env_v) if k.strip()]
+                for sk in sub_keys:
+                    if sk not in keys:
+                        keys.append(sk)
+        self.keys = keys
         self.current_index = 0
         self.exhausted_keys = set()
 
