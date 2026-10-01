@@ -1,8 +1,11 @@
 import sys
+import uuid
+import json
+import hashlib
 import sqlite3
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -41,6 +44,41 @@ def init_db():
         cursor.execute("ALTER TABLE tasks ADD COLUMN reminder_id TEXT")
     if "scheduling_status" not in existing_cols:
         cursor.execute("ALTER TABLE tasks ADD COLUMN scheduling_status TEXT DEFAULT 'pending_device_ack'")
+
+    # Safe migration Stage 9: Deduplicate existing reminder_ids before unique index creation
+    cursor.execute("""
+    SELECT reminder_id, COUNT(*) FROM tasks 
+    WHERE reminder_id IS NOT NULL 
+    GROUP BY reminder_id HAVING COUNT(*) > 1
+    """)
+    duplicate_rows = cursor.fetchall()
+    for row in duplicate_rows:
+        dup_rem_id = row[0]
+        cursor.execute("SELECT id FROM tasks WHERE reminder_id = ? ORDER BY id ASC", (dup_rem_id,))
+        task_ids = [t[0] for t in cursor.fetchall()]
+        for tid in task_ids[1:]:
+            new_uuid = str(uuid.uuid4())
+            cursor.execute("UPDATE tasks SET reminder_id = ? WHERE id = ?", (new_uuid, tid))
+
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_reminder_id
+    ON tasks(reminder_id)
+    WHERE reminder_id IS NOT NULL
+    """)
+
+    # Bảng lưu trữ các lượt đã xử lý để đảm bảo idempotency (V3.1 Stage 6 & 7)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS processed_turns (
+        session_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        status TEXT NOT NULL, -- 'processing', 'completed', 'failed'
+        response_json TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (session_id, turn_id)
+    )
+    """)
 
     # Bảng ghi nhật ký đôn đốc & lý do hoãn (phục vụ AI phân tích tâm lý)
     cursor.execute("""
@@ -184,6 +222,93 @@ def get_all_active_tasks() -> List[Dict[str, Any]]:
     tasks = [dict(row) for row in rows]
     conn.close()
     return tasks
+
+def get_task_by_reminder_id(reminder_id: str) -> Optional[Dict[str, Any]]:
+    """Tìm một task theo canonical reminder_id hoặc numeric ID"""
+    if not reminder_id:
+        return None
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM tasks WHERE reminder_id = ? OR CAST(id AS TEXT) = ?", (reminder_id, reminder_id))
+    row = cursor.fetchone()
+    task = dict(row) if row else None
+    conn.close()
+    return task
+
+def compute_request_hash(endpoint: str, session_id: str, turn_id: str, user_text: str, in_conversation: bool = False) -> str:
+    """Tạo SHA-256 fingerprint chuẩn hóa cho truy vấn đàm thoại"""
+    raw = json.dumps({
+        "endpoint": endpoint,
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "user_text": user_text.strip(),
+        "in_conversation": bool(in_conversation)
+    }, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+def claim_turn(session_id: str, turn_id: str, request_hash: str) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """
+    Xác nhận quyền thực thi turn_id một cách an toàn và chống race-condition (V3.1 Stage 6 & 8):
+    - Trả về ("claimed", None): Lượt này độc quyền thực thi side-effect.
+    - Trả về ("completed", response_data): Lượt đã xử lý trước đó -> Replay chính xác kết quả cũ.
+    - Trả về ("mismatch", None): Cùng turn_id nhưng request payload khác -> HTTP 409 Conflict.
+    - Trả về ("processing", None): Đang có luồng khác chạy cùng turn_id -> Tránh trùng lặp.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        INSERT INTO processed_turns (session_id, turn_id, request_hash, status)
+        VALUES (?, ?, ?, 'processing')
+        """, (session_id, turn_id, request_hash))
+        conn.commit()
+        return ("claimed", None)
+    except sqlite3.IntegrityError:
+        cursor.execute("""
+        SELECT status, request_hash, response_json FROM processed_turns
+        WHERE session_id = ? AND turn_id = ?
+        """, (session_id, turn_id))
+        row = cursor.fetchone()
+        if not row:
+            return ("failed", None)
+        status, stored_hash, response_json = row
+        if stored_hash != request_hash:
+            return ("mismatch", None)
+        if status == "completed" and response_json:
+            try:
+                return ("completed", json.loads(response_json))
+            except Exception:
+                return ("completed", None)
+        if status == "processing":
+            return ("processing", None)
+        return ("failed", None)
+    finally:
+        conn.close()
+
+def complete_turn(session_id: str, turn_id: str, response_data: Dict[str, Any]):
+    """Ghi nhận lượt đã hoàn tất kèm response chuẩn hóa để replay khi retry (Stage 7)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+    UPDATE processed_turns
+    SET status = 'completed', response_json = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE session_id = ? AND turn_id = ?
+    """, (json.dumps(response_data), session_id, turn_id))
+    conn.commit()
+    conn.close()
+
+def fail_turn(session_id: str, turn_id: str):
+    """Đánh dấu lượt thất bại để cho phép thử lại nếu cần"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+    UPDATE processed_turns
+    SET status = 'failed', updated_at = CURRENT_TIMESTAMP
+    WHERE session_id = ? AND turn_id = ?
+    """, (session_id, turn_id))
+    conn.commit()
+    conn.close()
 
 # Khởi tạo database khi import
 init_db()

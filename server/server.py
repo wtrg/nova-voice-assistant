@@ -222,8 +222,15 @@ async def list_tasks():
 
 @app.post("/api/reminders/{reminder_id}/device-ack")
 async def device_ack_reminder(reminder_id: str, req: DeviceAckRequest):
-    """Xác nhận trạng thái đặt lịch phần cứng Android (Stage 9: Two-phase commit)"""
-    from core.database import update_task_device_ack
+    """Xác nhận trạng thái đặt lịch phần cứng Android (Stage 9 & 11)"""
+    if req.status not in ["confirmed", "device_schedule_failed"]:
+        return JSONResponse(status_code=422, content={"error": "Invalid status", "status": req.status})
+
+    from core.database import get_task_by_reminder_id, update_task_device_ack
+    task = get_task_by_reminder_id(reminder_id)
+    if not task:
+        return JSONResponse(status_code=404, content={"error": "Reminder not found", "reminder_id": reminder_id})
+
     updated = update_task_device_ack(reminder_id, req.status, req.error)
     return {"ok": True, "reminder_id": reminder_id, "status": req.status, "updated": updated}
 
@@ -246,7 +253,7 @@ async def get_proactive_prompt(req: ProactiveRequest):
 @app.post("/api/dialogue", response_model=DialogueResponse)
 async def handle_dialogue(req: DialogueRequest):
     """
-    Xử lý đàm thoại 2 chiều thông minh (F-07: Cách ly phiên theo session_id, P0: Chuẩn hóa turn_id và action contract):
+    Xử lý đàm thoại 2 chiều thông minh (V3.1: Idempotency theo session_id + turn_id, replay kết quả cũ khi retry):
     1. Kiểm tra từ khóa dừng: 'kết thúc', 'thôi', 'tạm biệt' -> Tắt mic
     2. Nếu người dùng nói 'có', 'ừ' sau lời nhắc -> Bật đàm thoại liên tục
     3. Tự động giữ mở mic sau mỗi câu trả lời nếu đang trong phiên
@@ -254,80 +261,121 @@ async def handle_dialogue(req: DialogueRequest):
     clean_text = req.user_text.strip()
     session_id = req.session_id or "default"
     turn_id = req.turn_id.strip() if (req.turn_id and req.turn_id.strip()) else str(uuid.uuid4())
-    
-    # 1. Kiểm tra người dùng muốn kết thúc cuộc trò chuyện
-    if assistant_agent.is_exit_phrase(clean_text):
-        assistant_agent.clear_history(session_id=session_id)
-        reply = "Okela, cậu tập trung làm việc nha! Tớ tắt mic đây, khi nào cần cứ gọi Hey Nova nhé!"
+
+    from core.database import compute_request_hash, claim_turn, complete_turn, fail_turn
+    req_hash = compute_request_hash("dialogue", session_id, turn_id, clean_text, req.in_conversation)
+    claim_status, cached_response = claim_turn(session_id, turn_id, req_hash)
+
+    if claim_status == "completed" and cached_response:
+        return cached_response
+    elif claim_status == "mismatch":
+        return JSONResponse(status_code=409, content={"error": "Turn ID already used with different payload", "turn_id": turn_id})
+    elif claim_status == "processing":
+        return JSONResponse(status_code=409, content={"error": "Turn is currently being processed", "turn_id": turn_id, "retryable": True})
+
+    try:
+        # 1. Kiểm tra người dùng muốn kết thúc cuộc trò chuyện
+        if assistant_agent.is_exit_phrase(clean_text):
+            assistant_agent.clear_history(session_id=session_id)
+            reply = "Okela, cậu tập trung làm việc nha! Tớ tắt mic đây, khi nào cần cứ gọi Hey Nova nhé!"
+            audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
+            resp_data = {
+                "turn_id": turn_id,
+                "reply": reply,
+                "audio_url": f"/audio/{Path(audio_path).name}" if audio_path else "",
+                "action": {"type": "exit_conversation", "action": "exit_conversation"},
+                "continue_listening": False
+            }
+            complete_turn(session_id, turn_id, resp_data)
+            return resp_data
+
+        # 2. Kiểm tra người dùng đồng ý trò chuyện sau lời nhắc
+        if not req.in_conversation and assistant_agent.is_agree_to_chat(clean_text):
+            reply = "Okela, buôn chuyện tí nào! Cậu đang cảm thấy thế nào rồi?"
+            audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
+            resp_data = {
+                "turn_id": turn_id,
+                "reply": reply,
+                "audio_url": f"/audio/{Path(audio_path).name}" if audio_path else "",
+                "action": {"type": "start_conversation", "action": "start_conversation"},
+                "continue_listening": True
+            }
+            complete_turn(session_id, turn_id, resp_data)
+            return resp_data
+
+        # 3. Xử lý câu lệnh hoặc hội thoại thông thường qua Gemini (cách ly theo session_id)
+        reply, action = await run_in_threadpool(assistant_agent.process_command, clean_text, session_id=session_id)
+        if isinstance(action, dict) and action.get("action") == "upstream_error":
+            fail_turn(session_id, turn_id)
+            error_code = action.get("error_code", "upstream_error")
+            status_code = 429 if error_code == "quota_exceeded" else 503
+            return JSONResponse(status_code=status_code, content={
+                "turn_id": turn_id,
+                "error": reply,
+                "error_code": error_code,
+                "retryable": bool(action.get("retryable", False))
+            })
         audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
-        return {
+
+        # P0 FIX: Bảo toàn nguyên vẹn toàn bộ payload action (tasks, task_ids, summary), không ép thành chuỗi trơ trụi!
+        formatted_action = action if isinstance(action, dict) else {"type": "chat", "action": action or "chat"}
+
+        resp_data = {
             "turn_id": turn_id,
             "reply": reply,
             "audio_url": f"/audio/{Path(audio_path).name}" if audio_path else "",
-            "action": {"type": "exit_conversation", "action": "exit_conversation"},
-            "continue_listening": False
+            "action": formatted_action,
+            "continue_listening": req.in_conversation
         }
-        
-    # 2. Kiểm tra người dùng đồng ý trò chuyện sau lời nhắc
-    if not req.in_conversation and assistant_agent.is_agree_to_chat(clean_text):
-        reply = "Okela, buôn chuyện tí nào! Cậu đang cảm thấy thế nào rồi?"
-        audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
-        return {
-            "turn_id": turn_id,
-            "reply": reply,
-            "audio_url": f"/audio/{Path(audio_path).name}" if audio_path else "",
-            "action": {"type": "start_conversation", "action": "start_conversation"},
-            "continue_listening": True
-        }
-        
-    # 3. Xử lý câu lệnh hoặc hội thoại thông thường qua Gemini (cách ly theo session_id)
-    reply, action = await run_in_threadpool(assistant_agent.process_command, clean_text, session_id=session_id)
-    if isinstance(action, dict) and action.get("action") == "upstream_error":
-        error_code = action.get("error_code", "upstream_error")
-        status_code = 429 if error_code == "quota_exceeded" else 503
-        return JSONResponse(status_code=status_code, content={
-            "turn_id": turn_id,
-            "error": reply,
-            "error_code": error_code,
-            "retryable": bool(action.get("retryable", False))
-        })
-    audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
-    
-    # P0 FIX: Bảo toàn nguyên vẹn toàn bộ payload action (tasks, task_ids, summary), không ép thành chuỗi trơ trụi!
-    formatted_action = action if isinstance(action, dict) else {"type": "chat", "action": action or "chat"}
-    
-    return {
-        "turn_id": turn_id,
-        "reply": reply,
-        "audio_url": f"/audio/{Path(audio_path).name}" if audio_path else "",
-        "action": formatted_action,
-        "continue_listening": req.in_conversation
-    }
+        complete_turn(session_id, turn_id, resp_data)
+        return resp_data
+    except Exception as e:
+        fail_turn(session_id, turn_id)
+        raise e
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_text(req: ChatRequest):
-    """Nhận câu nói dạng text từ điện thoại, sinh câu trả lời bạn thân & file giọng Cuppy (F-07: session-isolated)"""
+    """Nhận câu nói dạng text từ điện thoại, sinh câu trả lời bạn thân & file giọng Cuppy (V3.1: Idempotency)"""
     session_id = req.session_id or "default"
     turn_id = req.turn_id.strip() if (req.turn_id and req.turn_id.strip()) else str(uuid.uuid4())
-    reply, action = await run_in_threadpool(assistant_agent.process_command, req.text, session_id=session_id)
-    if isinstance(action, dict) and action.get("action") == "upstream_error":
-        error_code = action.get("error_code", "upstream_error")
-        status_code = 429 if error_code == "quota_exceeded" else 503
-        return JSONResponse(status_code=status_code, content={
+
+    from core.database import compute_request_hash, claim_turn, complete_turn, fail_turn
+    req_hash = compute_request_hash("chat", session_id, turn_id, req.text, False)
+    claim_status, cached_response = claim_turn(session_id, turn_id, req_hash)
+
+    if claim_status == "completed" and cached_response:
+        return cached_response
+    elif claim_status == "mismatch":
+        return JSONResponse(status_code=409, content={"error": "Turn ID already used with different payload", "turn_id": turn_id})
+    elif claim_status == "processing":
+        return JSONResponse(status_code=409, content={"error": "Turn is currently being processed", "turn_id": turn_id, "retryable": True})
+
+    try:
+        reply, action = await run_in_threadpool(assistant_agent.process_command, req.text, session_id=session_id)
+        if isinstance(action, dict) and action.get("action") == "upstream_error":
+            fail_turn(session_id, turn_id)
+            error_code = action.get("error_code", "upstream_error")
+            status_code = 429 if error_code == "quota_exceeded" else 503
+            return JSONResponse(status_code=status_code, content={
+                "turn_id": turn_id,
+                "error": reply,
+                "error_code": error_code,
+                "retryable": bool(action.get("retryable", False))
+            })
+        audio_path = await run_in_threadpool(tts_engine.synthesize, reply)
+        audio_url = f"/audio/{Path(audio_path).name}" if audio_path else ""
+        formatted_action = action if isinstance(action, dict) else {"type": "chat", "action": action or "chat"}
+        resp_data = {
             "turn_id": turn_id,
-            "error": reply,
-            "error_code": error_code,
-            "retryable": bool(action.get("retryable", False))
-        })
-    audio_path = await run_in_threadpool(tts_engine.synthesize, reply)
-    audio_url = f"/audio/{Path(audio_path).name}" if audio_path else ""
-    formatted_action = action if isinstance(action, dict) else {"type": "chat", "action": action or "chat"}
-    return {
-        "turn_id": turn_id,
-        "reply": reply,
-        "action": formatted_action,
-        "audio_url": audio_url
-    }
+            "reply": reply,
+            "action": formatted_action,
+            "audio_url": audio_url
+        }
+        complete_turn(session_id, turn_id, resp_data)
+        return resp_data
+    except Exception as e:
+        fail_turn(session_id, turn_id)
+        raise e
 
 @app.post("/api/voice-upload")
 async def voice_upload(file: UploadFile = File(...), in_conversation: bool = Form(False), session_id: str = Form("default")):
