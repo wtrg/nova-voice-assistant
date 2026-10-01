@@ -32,7 +32,7 @@ EXPOSE 8000
 
 # Healthcheck targeting /health/ready
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health/ready || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/health/ready || exit 1
 
 # Controlled worker count (1-2) to ensure SQLite WAL safety with busy_timeout
-CMD ["python", "-m", "uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["sh", "-c", "python -m uvicorn server.server:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: nova-voice-assistant
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: TIMEZONE
+        value: Asia/Ho_Chi_Minh
+      - key: NOVA_API_BASE_URL
+        fromService:
+          type: web
+          name: nova-voice-assistant
+          property: host
