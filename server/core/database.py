@@ -66,7 +66,7 @@ def init_db():
     WHERE reminder_id IS NOT NULL
     """)
 
-    # Bảng lưu trữ các lượt đã xử lý để đảm bảo idempotency (V3.1 Stage 6 & 7)
+    # Bảng lưu trữ các lượt đã xử lý để đảm bảo idempotency (V3.1 Stage 6 & 7, V3.2 P0-04, P0-05)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS processed_turns (
         session_id TEXT NOT NULL,
@@ -74,11 +74,22 @@ def init_db():
         request_hash TEXT NOT NULL,
         status TEXT NOT NULL, -- 'processing', 'completed', 'failed'
         response_json TEXT,
+        processing_started_at TEXT DEFAULT CURRENT_TIMESTAMP,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        attempt_count INTEGER DEFAULT 1,
         PRIMARY KEY (session_id, turn_id)
     )
     """)
+
+    # Non-destructive migration cho bảng processed_turns
+    cursor.execute("PRAGMA table_info(processed_turns)")
+    pt_cols = [c[1] for c in cursor.fetchall()]
+    if "processing_started_at" not in pt_cols:
+        cursor.execute("ALTER TABLE processed_turns ADD COLUMN processing_started_at TEXT DEFAULT NULL")
+    if "attempt_count" not in pt_cols:
+        cursor.execute("ALTER TABLE processed_turns ADD COLUMN attempt_count INTEGER DEFAULT 1")
+
 
     # Bảng ghi nhật ký đôn đốc & lý do hoãn (phục vụ AI phân tích tâm lý)
     cursor.execute("""
@@ -145,10 +156,41 @@ def add_tasks_atomic(tasks_data: List[Dict[str, Any]]) -> List[int]:
     finally:
         conn.close()
 
-def update_task_device_ack(reminder_id: str, status: str, error: Optional[str] = None) -> bool:
-    """Cập nhật trạng thái device ACK (confirmed hoặc device_schedule_failed)"""
+def update_task_device_ack(reminder_id: str, status: str, error: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+    """
+    Cập nhật trạng thái device ACK (confirmed hoặc device_schedule_failed) (P1-03).
+    Bảng chuyển trạng thái:
+    - pending_device_ack -> confirmed (hợp lệ)
+    - pending_device_ack -> device_schedule_failed (hợp lệ)
+    - confirmed -> confirmed (idempotent 200 OK)
+    - confirmed -> device_schedule_failed (bất hợp lệ -> từ chối, trả về lỗi conflict)
+    - device_schedule_failed -> device_schedule_failed (idempotent 200 OK)
+    - device_schedule_failed -> confirmed (cho phép khôi phục khi thiết bị thử lại thành công)
+    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    cursor.execute("""
+    SELECT scheduling_status FROM tasks
+    WHERE reminder_id = ? OR CAST(id AS TEXT) = ?
+    """, (reminder_id, reminder_id))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return (False, "not_found")
+
+    current_status = row[0]
+    if current_status == "confirmed":
+        if status == "confirmed":
+            conn.close()
+            return (True, "already_confirmed")
+        elif status == "device_schedule_failed":
+            conn.close()
+            return (False, "invalid_transition_from_confirmed")
+
+    if current_status == "device_schedule_failed" and status == "device_schedule_failed":
+        conn.close()
+        return (True, "already_failed")
+
     if status == "device_schedule_failed":
         cursor.execute("""
         UPDATE tasks 
@@ -161,10 +203,12 @@ def update_task_device_ack(reminder_id: str, status: str, error: Optional[str] =
         SET scheduling_status = ? 
         WHERE reminder_id = ? OR CAST(id AS TEXT) = ?
         """, (status, reminder_id, reminder_id))
+
     updated = cursor.rowcount > 0
     conn.commit()
     conn.close()
-    return updated
+    return (updated, None)
+
 
 def get_due_tasks(current_time_str: str) -> List[Dict[str, Any]]:
     """Lấy danh sách các task đến hạn cần nhắc nhở (bỏ qua các task lỗi phần cứng)"""
@@ -236,55 +280,96 @@ def get_task_by_reminder_id(reminder_id: str) -> Optional[Dict[str, Any]]:
     conn.close()
     return task
 
-def compute_request_hash(endpoint: str, session_id: str, turn_id: str, user_text: str, in_conversation: bool = False) -> str:
-    """Tạo SHA-256 fingerprint chuẩn hóa cho truy vấn đàm thoại"""
-    raw = json.dumps({
-        "endpoint": endpoint,
-        "session_id": session_id,
-        "turn_id": turn_id,
-        "user_text": user_text.strip(),
-        "in_conversation": bool(in_conversation)
-    }, sort_keys=True)
+def compute_request_hash(endpoint: str, session_id: str, turn_id: str, user_text: str = "", in_conversation: bool = False, generate_audio: bool = False, **extra) -> str:
+    """Tạo SHA-256 fingerprint chuẩn hóa cho truy vấn đàm thoại / chat (P0-07)"""
+    normalized = {
+        "endpoint": str(endpoint).strip(),
+        "session_id": str(session_id).strip(),
+        "turn_id": str(turn_id).strip(),
+        "user_text": str(user_text).strip(),
+        "in_conversation": bool(in_conversation),
+        "generate_audio": bool(generate_audio)
+    }
+    for k, v in sorted(extra.items()):
+        if isinstance(v, str):
+            normalized[k] = v.strip()
+        elif isinstance(v, bool):
+            normalized[k] = bool(v)
+        else:
+            normalized[k] = v
+    raw = json.dumps(normalized, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-def claim_turn(session_id: str, turn_id: str, request_hash: str) -> Tuple[str, Optional[Dict[str, Any]]]:
+def claim_turn(session_id: str, turn_id: str, request_hash: str, lease_seconds: int = 60) -> Tuple[str, Optional[Dict[str, Any]]]:
     """
-    Xác nhận quyền thực thi turn_id một cách an toàn và chống race-condition (V3.1 Stage 6 & 8):
+    Xác nhận quyền thực thi turn_id một cách an toàn và chống race-condition (V3.2 P0-04 & P0-05):
     - Trả về ("claimed", None): Lượt này độc quyền thực thi side-effect.
     - Trả về ("completed", response_data): Lượt đã xử lý trước đó -> Replay chính xác kết quả cũ.
     - Trả về ("mismatch", None): Cùng turn_id nhưng request payload khác -> HTTP 409 Conflict.
-    - Trả về ("processing", None): Đang có luồng khác chạy cùng turn_id -> Tránh trùng lặp.
+    - Trả về ("processing", None): Đang có luồng khác chạy cùng turn_id (hoặc lease chưa hết hạn).
+    - Thử lại sau khi thất bại: chuyển trạng thái failed -> processing bằng atomic compare-and-swap.
+    - Hết hạn lease (backend crash): atomic reclaim phiên xử lý bị kẹt.
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     try:
         cursor.execute("""
-        INSERT INTO processed_turns (session_id, turn_id, request_hash, status)
-        VALUES (?, ?, ?, 'processing')
+        INSERT INTO processed_turns (session_id, turn_id, request_hash, status, processing_started_at, updated_at, attempt_count)
+        VALUES (?, ?, ?, 'processing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
         """, (session_id, turn_id, request_hash))
         conn.commit()
         return ("claimed", None)
     except sqlite3.IntegrityError:
         cursor.execute("""
-        SELECT status, request_hash, response_json FROM processed_turns
+        SELECT status, request_hash, response_json, updated_at, attempt_count,
+               (strftime('%s', 'now') - strftime('%s', updated_at)) AS age_sec
+        FROM processed_turns
         WHERE session_id = ? AND turn_id = ?
         """, (session_id, turn_id))
         row = cursor.fetchone()
         if not row:
             return ("failed", None)
-        status, stored_hash, response_json = row
+        status, stored_hash, response_json, updated_at, attempt_count, age_sec = row
         if stored_hash != request_hash:
             return ("mismatch", None)
+
         if status == "completed" and response_json:
             try:
                 return ("completed", json.loads(response_json))
             except Exception:
                 return ("completed", None)
-        if status == "processing":
+
+        if status == "failed":
+            # P0-04: Atomic compare-and-swap: FAILED -> PROCESSING
+            cursor.execute("""
+            UPDATE processed_turns
+            SET status = 'processing', updated_at = CURRENT_TIMESTAMP, attempt_count = attempt_count + 1
+            WHERE session_id = ? AND turn_id = ? AND status = 'failed'
+            """, (session_id, turn_id))
+            conn.commit()
+            if cursor.rowcount == 1:
+                return ("claimed", None)
             return ("processing", None)
+
+        if status == "processing":
+            # P0-05: Kiểm tra lease timeout (crash recovery)
+            age = age_sec if (age_sec is not None) else 0
+            if age > lease_seconds:
+                cursor.execute("""
+                UPDATE processed_turns
+                SET status = 'processing', updated_at = CURRENT_TIMESTAMP, attempt_count = attempt_count + 1
+                WHERE session_id = ? AND turn_id = ? AND status = 'processing'
+                  AND (strftime('%s', 'now') - strftime('%s', updated_at)) > ?
+                """, (session_id, turn_id, lease_seconds))
+                conn.commit()
+                if cursor.rowcount == 1:
+                    return ("claimed", None)
+            return ("processing", None)
+
         return ("failed", None)
     finally:
         conn.close()
+
 
 def complete_turn(session_id: str, turn_id: str, response_data: Dict[str, Any]):
     """Ghi nhận lượt đã hoàn tất kèm response chuẩn hóa để replay khi retry (Stage 7)"""
