@@ -118,6 +118,13 @@ async def download_apk():
         )
     return JSONResponse(status_code=404, content={"error": "APK not found"})
 
+@app.get("/download")
+async def download_page():
+    page_path = ROOT_DIR / "static" / "download.html"
+    if page_path.exists():
+        return FileResponse(page_path, media_type="text/html")
+    return FileResponse(ROOT_DIR / "static" / "Nova_Assistant.apk", media_type="application/vnd.android.package-archive", filename="Nova_Assistant.apk")
+
 @app.get("/qr/apk")
 async def qr_apk():
     """Trả về hình ảnh mã QR tải APK"""
