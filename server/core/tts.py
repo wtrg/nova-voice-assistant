@@ -210,13 +210,13 @@ class TextToSpeech:
         output_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.mp3")
         
         success = False
-        # Ưu tiên 1: Saydi AI Voice Studio (Online Cuppy 24/7) khi có key
-        if self.saydi_pool and self.saydi_pool.has_keys():
-            success = self._generate_saydi_tts(text, output_file)
-
-        # Ưu tiên 2: Giọng Cuppy Vieneu / Local endpoint
-        if not success and (self.provider == "cuppy" or self.cuppy_url):
+        # Ưu tiên 1: Giọng Cuppy Vieneu Local Voice Clone (từ Reference WAV)
+        if self.provider == "cuppy" or self.cuppy_url:
             success = self._generate_cuppy_tts(text, output_file)
+
+        # Ưu tiên 2: Saydi AI Voice Studio (voice.saydi.ai) nếu local VieNeu không khả dụng
+        if not success and self.saydi_pool and self.saydi_pool.has_keys():
+            success = self._generate_saydi_tts(text, output_file)
             
         if not success and self.provider == "elevenlabs":
             success = self._generate_elevenlabs_clone(text, output_file)
@@ -264,17 +264,23 @@ class TextToSpeech:
     def get_tts_health(self) -> dict:
         """Kiểm tra sức khỏe hệ thống TTS (V4-04)"""
         cuppy_available = False
+        voice_source = "none"
         try:
             from core.vieneu_cuppy import cuppy_engine
-            cuppy_available = cuppy_engine.get_health().get("model_loaded", False)
+            h = cuppy_engine.get_health()
+            cuppy_available = bool(h.get("voice_loaded", False))
+            voice_source = h.get("voice_source", "none")
         except Exception:
             pass
         if not cuppy_available:
             cuppy_available = bool(self.cuppy_url or (self.saydi_pool and self.saydi_pool.has_keys()))
+            if self.saydi_pool and self.saydi_pool.has_keys():
+                voice_source = "saydi_api"
 
         return {
             "tts_primary": "cuppy",
             "tts_primary_ready": cuppy_available,
+            "tts_voice_source": voice_source,
             "tts_fallback_ready": True
         }
 

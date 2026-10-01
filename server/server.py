@@ -205,6 +205,7 @@ async def health_ready():
             "database": db_ok,
             "tts_primary": tts_health.get("tts_primary", "cuppy"),
             "tts_primary_ready": tts_health.get("tts_primary_ready", False),
+            "tts_voice_source": tts_health.get("tts_voice_source", "none"),
             "tts_fallback_ready": tts_health.get("tts_fallback_ready", True)
         }
     )
