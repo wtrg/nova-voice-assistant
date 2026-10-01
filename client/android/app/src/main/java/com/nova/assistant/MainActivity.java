@@ -95,19 +95,19 @@ public class MainActivity extends BridgeActivity {
             e.printStackTrace();
         }
 
-        // 1. Xin quyền Microphone ngay khi khởi động app
+        // 1. Xin các quyền Runtime cần thiết (Microphone & Thông báo trên Android 13+) cùng một lúc
+        List<String> neededPermissions = new ArrayList<>();
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.MODIFY_AUDIO_SETTINGS
-            }, RECORD_AUDIO_REQUEST_CODE);
+            neededPermissions.add(Manifest.permission.RECORD_AUDIO);
+            neededPermissions.add(Manifest.permission.MODIFY_AUDIO_SETTINGS);
         }
-
-        // Xin quyền gửi thông báo trên Android 13+ (TIRAMISU)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1002);
+                neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS);
             }
+        }
+        if (!neededPermissions.isEmpty()) {
+            ActivityCompat.requestPermissions(this, neededPermissions.toArray(new String[0]), RECORD_AUDIO_REQUEST_CODE);
         }
         // 2. Khởi tạo Native Android Text-to-Speech Engine
         try {
