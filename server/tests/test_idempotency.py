@@ -195,3 +195,174 @@ def test_sqlite_unique_reminder_id_constraint():
         pass
     finally:
         conn.close()
+
+def test_failed_turn_atomic_retry():
+    """
+    P0-04: Atomic compare-and-swap retry from FAILED -> PROCESSING.
+    When a turn fails, subsequent retry with same payload can atomic claim.
+    Two concurrent retries after failure: only one succeeds in claiming.
+    """
+    session_id = f"sess_fail_{uuid.uuid4().hex[:8]}"
+    turn_id = f"turn_fail_{uuid.uuid4().hex[:8]}"
+    req_hash = db.compute_request_hash("dialogue", session_id, turn_id, "hello", False, False)
+
+    # 1. First claim and mark failed
+    status1, _ = db.claim_turn(session_id, turn_id, req_hash)
+    assert status1 == "claimed"
+    db.fail_turn(session_id, turn_id)
+
+    # 2. Retry: must atomically transition to processing and return claimed
+    status2, _ = db.claim_turn(session_id, turn_id, req_hash)
+    assert status2 == "claimed"
+
+    # Mark failed again to test concurrent retry
+    db.fail_turn(session_id, turn_id)
+
+    # 3. Two concurrent retries: exactly 1 claimed, other processing
+    def attempt_claim():
+        return db.claim_turn(session_id, turn_id, req_hash)[0]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        f1 = executor.submit(attempt_claim)
+        f2 = executor.submit(attempt_claim)
+        results = [f1.result(), f2.result()]
+
+    assert "claimed" in results
+    assert "processing" in results
+
+def test_processing_lease_timeout_crash_recovery():
+    """
+    P0-05: Crash recovery via lease expiration.
+    Stale processing turn (older than lease) is atomically reclaimed.
+    Fresh processing turn (within lease) cannot be reclaimed.
+    """
+    session_id = f"sess_lease_{uuid.uuid4().hex[:8]}"
+    turn_id = f"turn_lease_{uuid.uuid4().hex[:8]}"
+    req_hash = db.compute_request_hash("dialogue", session_id, turn_id, "test lease", False, False)
+
+    # 1. Fresh claim: cannot reclaim immediately
+    status1, _ = db.claim_turn(session_id, turn_id, req_hash, lease_seconds=60)
+    assert status1 == "claimed"
+
+    status_fresh, _ = db.claim_turn(session_id, turn_id, req_hash, lease_seconds=60)
+    assert status_fresh == "processing"
+
+    # 2. Simulate crash by manually aging the updated_at column to 120s ago
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+    UPDATE processed_turns
+    SET updated_at = datetime('now', '-120 seconds')
+    WHERE session_id = ? AND turn_id = ?
+    """, (session_id, turn_id))
+    conn.commit()
+    conn.close()
+
+    # 3. Reclaim with lease 60s: must succeed
+    status_reclaimed, _ = db.claim_turn(session_id, turn_id, req_hash, lease_seconds=60)
+    assert status_reclaimed == "claimed"
+
+def test_request_hash_generate_audio_sensitivity():
+    """
+    P0-07: generate_audio is part of canonical request hash.
+    Different generate_audio on same turn_id returns 409 mismatch.
+    """
+    session_id = f"sess_hash_{uuid.uuid4().hex[:8]}"
+    turn_id = f"turn_hash_{uuid.uuid4().hex[:8]}"
+
+    payload1 = {
+        "user_text": "tạm biệt, tắt mic đi",
+        "in_conversation": True,
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "generate_audio": False
+    }
+    res1 = client.post("/api/dialogue", json=payload1)
+    assert res1.status_code == 200
+
+    payload2 = dict(payload1)
+    payload2["generate_audio"] = True
+    res2 = client.post("/api/dialogue", json=payload2)
+    assert res2.status_code == 409
+    assert "Turn ID already used with different payload" in res2.json()["error"]
+
+def test_voice_upload_idempotent_with_turn_id():
+    """
+    P0-08 & P0-09: /api/voice-upload accepts turn_id, does not mutate JSONResponse,
+    and returns idempotent completed response on retry.
+    """
+    import io
+    turn_id = f"turn_voice_{uuid.uuid4().hex[:8]}"
+    session_id = f"sess_voice_{uuid.uuid4().hex[:8]}"
+
+    # Mock audio bytes (RIFF header)
+    dummy_audio = b"RIFF" + b"\x00" * 40
+
+    from unittest.mock import MagicMock
+    from server import stt_engine
+    
+    with patch.object(stt_engine, "transcribe_audio_file", return_value="bật đèn phòng khách"):
+        # First upload
+        res1 = client.post(
+            "/api/voice-upload",
+            data={"in_conversation": False, "session_id": session_id, "turn_id": turn_id},
+            files={"file": ("test.wav", io.BytesIO(dummy_audio), "audio/wav")}
+        )
+        assert res1.status_code == 200
+        data1 = res1.json()
+        assert data1["turn_id"] == turn_id
+        assert data1["user_text"] == "bật đèn phòng khách"
+
+        # Retry upload with same audio & turn_id -> replay cached response
+        res2 = client.post(
+            "/api/voice-upload",
+            data={"in_conversation": False, "session_id": session_id, "turn_id": turn_id},
+            files={"file": ("test.wav", io.BytesIO(dummy_audio), "audio/wav")}
+        )
+        assert res2.status_code == 200
+        data2 = res2.json()
+        assert data2 == data1
+
+    # Same turn_id with different transcribed text -> 409 Conflict
+    with patch.object(stt_engine, "transcribe_audio_file", return_value="tắt quạt"):
+        res3 = client.post(
+            "/api/voice-upload",
+            data={"in_conversation": False, "session_id": session_id, "turn_id": turn_id},
+            files={"file": ("diff.wav", io.BytesIO(dummy_audio), "audio/wav")}
+        )
+        assert res3.status_code == 409
+        assert "Turn ID already used with different payload" in res3.json()["error"]
+
+def test_device_ack_idempotency_and_conflict():
+    """
+    P1-03: Device ACK endpoint idempotency and invalid transition conflict.
+    confirmed -> confirmed: 200 OK idempotent
+    confirmed -> device_schedule_failed: 409 Conflict rejected
+    """
+    rem_id = f"rem_ack_test_{uuid.uuid4().hex[:8]}"
+    db.add_tasks_atomic([{
+        "reminder_id": rem_id,
+        "title": "Kiểm tra báo thức",
+        "scheduled_time": "2099-01-01 10:00",
+        "scheduling_status": "pending_device_ack"
+    }])
+
+    # 1. First ACK confirmed -> 200
+    res1 = client.post(f"/api/reminders/{rem_id}/device-ack", json={"status": "confirmed"})
+    assert res1.status_code == 200
+    assert res1.json()["ok"] is True
+    assert res1.json()["updated"] is True
+
+    # 2. Duplicate ACK confirmed -> 200 idempotent
+    res2 = client.post(f"/api/reminders/{rem_id}/device-ack", json={"status": "confirmed"})
+    assert res2.status_code == 200
+    assert res2.json()["ok"] is True
+
+    # 3. Confirmed -> device_schedule_failed -> 409 Conflict
+    res3 = client.post(f"/api/reminders/{rem_id}/device-ack", json={
+        "status": "device_schedule_failed",
+        "error": "Cannot fail after confirmed"
+    })
+    assert res3.status_code == 409
+    assert "Cannot transition from confirmed to failed" in res3.json()["error"]
+

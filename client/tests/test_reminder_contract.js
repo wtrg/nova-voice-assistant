@@ -47,7 +47,7 @@ async function runTests() {
       {
         title: "Tập gym",
         scheduled_time: "2026-10-01 17:00",
-        scheduled_at_epoch_ms: 1790800000000,
+        scheduled_at_epoch_ms: Date.now() + 3600000,
         timezone: "Asia/Ho_Chi_Minh"
       }
     ]
@@ -252,6 +252,51 @@ async function runTests() {
   assert.strictEqual(ackValid.exact, true);
   assert.strictEqual(ackValid.pending_intent_id, 8888);
   console.log("✓ Invariant: Native ACK fail-closed validation pass");
+
+  // Test Case 10: Timestamp validation fail-closed (P1-04)
+  const now = Date.now();
+  assert.strictEqual(ReminderDeliveryPolicy.validateTimestamp(0, now).valid, false);
+  assert.strictEqual(ReminderDeliveryPolicy.validateTimestamp(NaN, now).valid, false);
+  assert.strictEqual(ReminderDeliveryPolicy.validateTimestamp("invalid", now).valid, false);
+  assert.strictEqual(ReminderDeliveryPolicy.validateTimestamp(now - 120000, now).valid, false); // 2 minutes ago -> past
+  assert.strictEqual(ReminderDeliveryPolicy.validateTimestamp(now + (150 * 365.25 * 24 * 3600 * 1000), now).valid, false); // 150 years -> absurd future
+  assert.strictEqual(ReminderDeliveryPolicy.validateTimestamp(now + 600000, now).valid, true); // 10 minutes ahead -> valid
+  console.log("✓ Invariant: Timestamp validation fail-closed pass");
+
+  // Test Case 11: Local ACK outbox persistence and flush (P1-02)
+  global.localStorage = {
+    _data: {},
+    getItem(k) { return this._data[k] || null; },
+    setItem(k, v) { this._data[k] = String(v); },
+    removeItem(k) { delete this._data[k]; }
+  };
+  const rcOutbox = new ReminderClient();
+  rcOutbox.saveToAckOutbox({ reminder_id: "rem_test_outbox_1", status: "confirmed", created_at: now, attempt_count: 0 });
+  assert.strictEqual(rcOutbox.getAckOutbox().length, 1);
+  assert.strictEqual(rcOutbox.getAckOutbox()[0].reminder_id, "rem_test_outbox_1");
+  rcOutbox.removeFromAckOutbox("rem_test_outbox_1");
+  assert.strictEqual(rcOutbox.getAckOutbox().length, 0);
+  console.log("✓ Invariant: Local ACK outbox persistence pass");
+
+  // Test Case 12: Structured return nativeScheduled & serverAckPersisted (P1-01)
+  global.window.AndroidNova.scheduleNativeAlarm = (jsonStr) => {
+    const p = JSON.parse(jsonStr);
+    return JSON.stringify({
+      ok: true,
+      reminder_id: p.reminder_id,
+      exact: true,
+      pending_intent_id: 9999,
+      scheduled_at_epoch_ms: p.scheduled_at_epoch_ms
+    });
+  };
+  const scheduledRes = await rcOutbox.scheduleNativeTask({
+    title: "Check mail",
+    scheduled_at_epoch_ms: now + 300000
+  });
+  assert.strictEqual(scheduledRes.ok, true);
+  assert.strictEqual(scheduledRes.nativeScheduled, true);
+  assert.strictEqual(typeof scheduledRes.serverAckPersisted, 'boolean');
+  console.log("✓ Invariant: Structured return nativeScheduled & serverAckPersisted pass");
 
   console.log("ALL REMINDER CONTRACT REGRESSION TESTS PASSED PERFECTLY!");
 

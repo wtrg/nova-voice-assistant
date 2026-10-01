@@ -20,7 +20,7 @@ client = TestClient(app)
 
 def test_turn_id_preserved_when_provided_by_client():
     """Stage 5 Invariant: client turn_id survives round trip through dialogue and chat"""
-    client_turn_id_dialogue = "turn-client-uuid-999888"
+    client_turn_id_dialogue = f"turn-client-uuid-{uuid.uuid4().hex[:8]}"
     
     # Test /api/dialogue
     payload_dialogue = {
@@ -49,7 +49,7 @@ def test_turn_id_preserved_when_provided_by_client():
     assert res_mismatch.status_code == 409
 
     # Test /api/chat with distinct turn ID
-    client_turn_id_chat = "turn-client-uuid-777666"
+    client_turn_id_chat = f"turn-client-uuid-{uuid.uuid4().hex[:8]}"
     res_chat = client.post("/api/chat", json={
         "text": "mở youtube",
         "session_id": "test_turn_session",
