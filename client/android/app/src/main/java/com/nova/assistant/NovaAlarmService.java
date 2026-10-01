@@ -44,6 +44,7 @@ public class NovaAlarmService extends Service {
     public static volatile boolean isAlarmRinging = false;
     public static volatile String currentSessionId = "";
     public static volatile SessionState currentState = SessionState.IDLE;
+    public static volatile SessionState lastTerminalState = SessionState.IDLE;
 
     private MediaPlayer mediaPlayer = null;
     private Ringtone fallbackRingtone = null;
@@ -277,33 +278,46 @@ public class NovaAlarmService extends Service {
             mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                 @Override
                 public boolean onError(MediaPlayer mp, int what, int extra) {
-                    Log.w(TAG, "mediaPlayer error what=" + what + ", extra=" + extra);
-                    finishAlarmSession();
+                    Log.w(TAG, "mediaPlayer error what=" + what + ", extra=" + extra + "; falling back to system ringtone");
+                    releaseMediaPlayer();
+                    playFallbackRingtone();
                     return true;
                 }
             });
             mediaPlayer.start();
         } catch (Exception e) {
             Log.w(TAG, "Cannot play asset cuppy_alarm.wav, falling back to system ringtone", e);
-            try {
-                Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-                if (soundUri == null) soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                fallbackRingtone = RingtoneManager.getRingtone(this, soundUri);
-                if (fallbackRingtone != null) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        fallbackRingtone.setLooping(true);
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                        fallbackRingtone.setAudioAttributes(
-                            new AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ALARM)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                                .build()
-                        );
-                    }
-                    fallbackRingtone.play();
+            releaseMediaPlayer();
+            playFallbackRingtone();
+        }
+    }
+
+    private void playFallbackRingtone() {
+        try {
+            Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+            if (soundUri == null) soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            fallbackRingtone = RingtoneManager.getRingtone(this, soundUri);
+            if (fallbackRingtone != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    fallbackRingtone.setLooping(true);
                 }
-            } catch (Exception ignored) {}
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    fallbackRingtone.setAudioAttributes(
+                        new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    );
+                }
+                fallbackRingtone.play();
+                Log.i(TAG, "Fallback system ringtone playing successfully");
+            } else {
+                Log.w(TAG, "Both primary audio and fallback ringtone unavailable");
+                finishAlarmSession();
+            }
+        } catch (Exception ex) {
+            Log.e(TAG, "Error playing fallback ringtone", ex);
+            finishAlarmSession();
         }
     }
 
@@ -363,7 +377,10 @@ public class NovaAlarmService extends Service {
 
     private void finishAlarmSession() {
         safetyHandler.removeCallbacks(safetyTimeoutRunnable);
+        lastTerminalState = currentState;
         isAlarmRinging = false;
+        currentSessionId = "";
+        currentState = SessionState.IDLE;
         releaseMediaPlayer();
         stopFallbackRingtone();
         releaseWakeLock();

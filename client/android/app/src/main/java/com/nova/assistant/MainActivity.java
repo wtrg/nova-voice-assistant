@@ -992,11 +992,8 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void stopAudioInternal() {
+    private void stopAssistantAudioInternal() {
         currentAudioRequestId.incrementAndGet();
-        try {
-            NovaAlarmService.stopAlarm(MainActivity.this);
-        } catch (Exception ignored) {}
         try {
             if (mediaPlayer != null) {
                 if (mediaPlayer.isPlaying()) {
@@ -1020,6 +1017,16 @@ public class MainActivity extends BridgeActivity {
                 tts.stop();
             }
         } catch (Exception ignored) {}
+    }
+
+    private void stopAlarmSessionInternal() {
+        try {
+            NovaAlarmService.stopAlarm(MainActivity.this);
+        } catch (Exception ignored) {}
+    }
+
+    private void stopAudioInternal() {
+        stopAssistantAudioInternal();
     }
 
     private void playLocalFileInternal(final String filePath) {
