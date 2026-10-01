@@ -20,7 +20,11 @@ print("Initializing Vieneu(mode='v3turbo')...")
 tts = Vieneu(mode="v3turbo")
 print(f"Vieneu initialized in {time.time() - t0:.2f}s!")
 
-ref_wav = r"C:\Users\Lenovo\AppData\Local\WTStudio\saydi-tts-service\cuppy_sample_8_12s.wav"
+ref_wav = os.getenv("CUPPY_REFERENCE_WAV", str(Path(__file__).parent.parent / "data" / "voices" / "cuppy_sample.wav"))
+if not Path(ref_wav).exists():
+    fallback_win = r"C:\Users\Lenovo\AppData\Local\WTStudio\saydi-tts-service\cuppy_sample_8_12s.wav"
+    if Path(fallback_win).exists():
+        ref_wav = fallback_win
 t1 = time.time()
 print(f"Registering voice 'cuppy' from {ref_wav}...")
 tts.add_voice("cuppy", ref_wav, denoise=True)
