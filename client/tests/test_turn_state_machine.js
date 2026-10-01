@@ -1,6 +1,7 @@
 const assert = require('assert');
 const { ConversationState, ConversationStateMachine } = require('../www/js/conversation/ConversationStateMachine');
 const { TurnController } = require('../www/js/conversation/TurnController');
+const { AudioRequestRegistry } = require('../www/js/conversation/AudioRequestRegistry');
 
 console.log("Running test_turn_state_machine.js...");
 
@@ -60,106 +61,124 @@ assert.strictEqual(smText.transition(ConversationState.SPEAKING), true);
 assert.strictEqual(smText.transition(ConversationState.IDLE), true);
 console.log("✓ text input from IDLE follows valid state transitions pass");
 
-// Test Case 5: Stale completed and failed TTS ignored
-const activeAudioRequests = new Map();
-let currentActiveTurnId = "turn_B_456";
-let turnBCallbackCount = 0;
-let staleCallbackCount = 0;
+// Test Case 5: Stale completed and failed TTS ignored via AudioRequestRegistry (Stage 15 & 16)
+const registry = new AudioRequestRegistry();
+const tcMock = {
+  activeTurnId: "turn_B_456",
+  isCurrentTurn: (tid) => tid === "turn_B_456"
+};
 
-function dispatchAudioEvent(requestId, event) {
-  const handler = activeAudioRequests.get(requestId);
-  if (!handler) {
-    staleCallbackCount++;
-    return;
-  }
-  if (handler.cancelled) {
-    staleCallbackCount++;
-    activeAudioRequests.delete(requestId);
-    return;
-  }
-  if (handler.turnId !== currentActiveTurnId) {
-    staleCallbackCount++;
-    activeAudioRequests.delete(requestId);
-    return;
-  }
-  if (event === "completed") {
-    handler.onDone();
-  } else if (event === "failed") {
-    handler.onFail();
-  }
-}
+let turnBCallbackCount = 0;
+let staleCallbackTriggered = false;
 
 // Register request for stale Turn A
-activeAudioRequests.set("req_A_1", {
+registry.registerRequest("req_A_1", {
   turnId: "turn_A_123",
-  cancelled: false,
-  onDone: () => { assert.fail("Stale turn A must not complete"); },
-  onFail: () => { assert.fail("Stale turn A must not fail"); }
+  onDone: () => { staleCallbackTriggered = true; assert.fail("Stale turn A must not complete"); },
+  onFail: () => { staleCallbackTriggered = true; assert.fail("Stale turn A must not fail"); }
 });
 
-// Register request for current Turn B
-activeAudioRequests.set("req_B_2", {
+// Register request for active Turn B
+registry.registerRequest("req_B_2", {
   turnId: "turn_B_456",
-  cancelled: false,
   onDone: () => { turnBCallbackCount++; },
-  onFail: () => {}
+  onFail: () => { assert.fail("Turn B should not fail"); }
 });
 
 // Stale completed event for Turn A -> rejected
-dispatchAudioEvent("req_A_1", "completed");
+const resStaleDone = registry.dispatchAudioEvent("req_A_1", "completed", tcMock);
+assert.strictEqual(resStaleDone, false, "Stale Turn A event must be rejected");
+
 // Stale failed event for unknown / stale request -> rejected
-dispatchAudioEvent("unknown_stale_req", "failed");
+const resUnknown = registry.dispatchAudioEvent("unknown_stale_req", "failed", tcMock);
+assert.strictEqual(resUnknown, false, "Unknown request event must be rejected");
 
 // Active event for Turn B -> accepted
-dispatchAudioEvent("req_B_2", "completed");
+const resActive = registry.dispatchAudioEvent("req_B_2", "completed", tcMock);
+assert.strictEqual(resActive, true, "Active Turn B event must be accepted");
 
 assert.strictEqual(turnBCallbackCount, 1, "Turn B must complete cleanly");
-assert.ok(staleCallbackCount >= 2, "Stale events must be recorded as rejected");
-console.log("✓ stale completed TTS ignored pass");
-console.log("✓ stale failed TTS ignored pass");
+assert.strictEqual(staleCallbackTriggered, false, "Stale callbacks must never execute");
+console.log("✓ stale completed and failed TTS ignored via AudioRequestRegistry pass");
 
-// Test Case 6: Old timeout cannot start fallback after interrupt
-let timeoutFallbackTriggered = false;
-let timeoutAId = null;
+// Test Case 6: Stale 200ms and 2s fallback continuation timers cancelled (Stage 16)
+const timerRegistry = new AudioRequestRegistry();
+let timer200msFired = false;
+let fallback2sFired = false;
 
-const reqA = {
-  turnId: "turn_A_interrupt",
-  cancelled: false,
-  connectTimeout: null
+timerRegistry.registerRequest("req_A_timers", {
+  turnId: "turn_A_timed",
+  onDone: () => {},
+  onFail: () => {}
+});
+
+// Schedule 200ms triggerStart timer
+timerRegistry.scheduleRequestTimer("req_A_timers", () => {
+  timer200msFired = true;
+}, 200, tcMock);
+
+// Schedule 2s fallback continuation timer
+timerRegistry.scheduleRequestTimer("req_A_timers", () => {
+  fallback2sFired = true;
+}, 2000, tcMock);
+
+// Turn A interrupted or cancelled
+timerRegistry.cancelRequest("req_A_timers");
+
+const reqEntry = timerRegistry.getRequest("req_A_timers");
+assert.strictEqual(reqEntry, null, "Request should be removed from registry on cancel");
+assert.strictEqual(timer200msFired, false, "200ms timer must NOT fire after cancel");
+assert.strictEqual(fallback2sFired, false, "2s fallback timer must NOT fire after cancel");
+console.log("✓ stale 200ms and 2s fallback timers cancelled before fire pass");
+
+// Test Case 7: Stale chunk completion does not continue sequence (Stage 16)
+let sequenceAdvanced = false;
+const ownerTurnA = "turn_A_chunk";
+const tcChunks = {
+  activeTurnId: "turn_B_chunk", // Turn switched to B!
+  isCurrentTurn: (id) => id === "turn_B_chunk"
 };
 
-// Request A starts with 35s timeout
-timeoutAId = setTimeout(() => {
-  if (reqA.cancelled) return;
-  timeoutFallbackTriggered = true;
-}, 35000);
-reqA.connectTimeout = timeoutAId;
+function onChunkComplete(ownerTurnId) {
+  if (!timerRegistry.isOwnerTurnCurrent(ownerTurnId, tcChunks)) {
+    // Stale chunk completion: drop continuation
+    return;
+  }
+  sequenceAdvanced = true;
+}
 
-// User interrupts Turn A
-function interruptTurnA() {
-  reqA.cancelled = true;
-  if (reqA.connectTimeout) {
-    clearTimeout(reqA.connectTimeout);
-    reqA.connectTimeout = null;
+onChunkComplete(ownerTurnA);
+assert.strictEqual(sequenceAdvanced, false, "Stale chunk completion must not advance chunk sequence");
+console.log("✓ stale chunk completion does not continue sequence pass");
+
+// Test Case 8: Stale finishSpeaking does not finish active Turn B (Stage 16)
+const smFinish = new ConversationStateMachine();
+const tcFinish = new TurnController(smFinish);
+const turnAId = tcFinish.startNewTurn("Lệnh A");
+smFinish.transition(ConversationState.SPEAKING);
+
+// Turn B starts before A finishes speaking
+const turnBId = tcFinish.startNewTurn("Lệnh B");
+smFinish.transition(ConversationState.SPEAKING);
+assert.strictEqual(tcFinish.activeTurnId, turnBId);
+
+// Stale finishSpeaking for Turn A
+function finishSpeaking(ownerTurnId) {
+  if (tcFinish.isCurrentTurn(ownerTurnId)) {
+    tcFinish.finishTurn(ownerTurnId);
   }
 }
-interruptTurnA();
 
-// Turn B starts
-const reqB = {
-  turnId: "turn_B_new",
-  cancelled: false,
-  completed: false
-};
+finishSpeaking(turnAId); // Old closure from Turn A
+assert.strictEqual(tcFinish.activeTurnId, turnBId, "Turn B must still be active after stale Turn A finishSpeaking");
+assert.strictEqual(tcFinish.isCurrentTurn(turnBId), true);
 
-// Simulate time advancing > 35s
-// Since clearTimeout was called and reqA.cancelled is true, timeout never fires.
-assert.strictEqual(reqA.cancelled, true);
-assert.strictEqual(reqA.connectTimeout, null);
-assert.strictEqual(timeoutFallbackTriggered, false, "Fallback must NOT trigger after interrupt");
-console.log("✓ old timeout cannot start fallback after interrupt pass");
+// Active Turn B finishSpeaking
+finishSpeaking(turnBId);
+assert.strictEqual(tcFinish.activeTurnId, null, "Turn B finishes cleanly when owner turn matches");
+console.log("✓ stale finishSpeaking does not finish active Turn B pass");
 
-// Test Case 7: Live TTS begins before prefetch
+// Test Case 9: Live TTS begins before prefetch
 const chunkOrderEvents = [];
 function simulateSequentialPlayback(chunks) {
   let idx = 0;
@@ -183,3 +202,4 @@ assert.deepStrictEqual(chunkOrderEvents, ["start_live_chunk_0", "prefetch_1"], "
 console.log("✓ live TTS begins before prefetch pass");
 
 console.log("ALL TURN STATE MACHINE TESTS PASSED PERFECTLY!");
+

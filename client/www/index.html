@@ -39,8 +39,10 @@
   </style>
   <script src="js/voice/prebuiltAudioMap.js"></script>
   <script src="js/reminders/ReminderId.js"></script>
+  <script src="js/reminders/ReminderDeliveryPolicy.js"></script>
   <script src="js/conversation/ConversationStateMachine.js"></script>
   <script src="js/conversation/TurnController.js"></script>
+  <script src="js/conversation/AudioRequestRegistry.js"></script>
   <script src="js/reminders/ReminderClient.js"></script>
   <script src="js/diagnostics/DiagnosticsPanel.js"></script>
 </head>
@@ -339,31 +341,41 @@
       window.diagnosticsPanel = diagnosticsPanel;
     }
 
-    // Audio Event Dispatcher: quản lý tts_request_id và turn_id correlation (Phase 5 & V3 Reliability)
-    const activeAudioRequests = new Map();
+    // Audio Event Dispatcher: quản lý tts_request_id và turn_id correlation (V3.1 AudioRequestRegistry)
+    const audioRegistry = (typeof AudioRequestRegistry !== 'undefined') ? new AudioRequestRegistry() : null;
+    const activeAudioRequests = audioRegistry ? audioRegistry.activeRequests : new Map();
+    window.audioRegistry = audioRegistry;
+
+    function isOwnerTurnCurrent(ownerTurnId) {
+      if (audioRegistry) {
+        return audioRegistry.isOwnerTurnCurrent(ownerTurnId, turnController);
+      }
+      return !ownerTurnId || !turnController || turnController.isCurrentTurn(ownerTurnId);
+    }
+    window.isOwnerTurnCurrent = isOwnerTurnCurrent;
 
     function cancelAudioRequest(requestId) {
       if (!requestId) return;
-      const req = activeAudioRequests.get(requestId);
-      if (req) {
-        req.cancelled = true;
-        if (req.connectTimeout) {
-          clearTimeout(req.connectTimeout);
-          req.connectTimeout = null;
+      if (audioRegistry) {
+        audioRegistry.cancelRequest(requestId);
+      } else {
+        const req = activeAudioRequests.get(requestId);
+        if (req) {
+          req.cancelled = true;
+          activeAudioRequests.delete(requestId);
         }
-        activeAudioRequests.delete(requestId);
       }
     }
 
     function cancelAllAudioRequests() {
-      for (const [reqId, req] of activeAudioRequests.entries()) {
-        req.cancelled = true;
-        if (req.connectTimeout) {
-          clearTimeout(req.connectTimeout);
-          req.connectTimeout = null;
+      if (audioRegistry) {
+        audioRegistry.cancelAllRequests();
+      } else {
+        for (const [reqId, req] of activeAudioRequests.entries()) {
+          req.cancelled = true;
         }
+        activeAudioRequests.clear();
       }
-      activeAudioRequests.clear();
       window._nativeTTSFinishedCallback = null;
       window.onNovaSpeechStarted = null;
       window.onNativeAudioFailed = null;
@@ -388,36 +400,32 @@
         return;
       }
 
-      const handler = activeAudioRequests.get(requestId);
-      if (!handler) {
-        console.log(`[AudioEvent] Stale or unmonitored requestId=${requestId} (${event})`);
-        return;
-      }
-
-      if (handler.cancelled) {
-        console.log(`[AudioEvent] Ignored event=${event} for cancelled requestId=${requestId}`);
-        activeAudioRequests.delete(requestId);
-        return;
-      }
-
-      if (handler.turnId && turnController && !turnController.isCurrentTurn(handler.turnId)) {
-        console.warn(`[AudioEvent] Rejected event for stale turn: ${handler.turnId}`);
-        if (handler.connectTimeout) {
-          clearTimeout(handler.connectTimeout);
-          handler.connectTimeout = null;
+      if (audioRegistry) {
+        audioRegistry.dispatchAudioEvent(requestId, event, turnController);
+      } else {
+        const handler = activeAudioRequests.get(requestId);
+        if (!handler) {
+          console.log(`[AudioEvent] Stale or unmonitored requestId=${requestId} (${event})`);
+          return;
         }
-        activeAudioRequests.delete(requestId);
-        return;
-      }
-
-      if (event === "started") {
-        if (typeof handler.onStart === 'function') handler.onStart();
-      } else if (event === "completed") {
-        activeAudioRequests.delete(requestId);
-        if (typeof handler.onDone === 'function') handler.onDone();
-      } else if (event === "failed" || event === "cancelled") {
-        activeAudioRequests.delete(requestId);
-        if (typeof handler.onFail === 'function') handler.onFail();
+        if (handler.cancelled) {
+          activeAudioRequests.delete(requestId);
+          return;
+        }
+        if (handler.turnId && turnController && !turnController.isCurrentTurn(handler.turnId)) {
+          console.warn(`[AudioEvent] Rejected event for stale turn: ${handler.turnId}`);
+          activeAudioRequests.delete(requestId);
+          return;
+        }
+        if (event === "started") {
+          if (typeof handler.onStart === 'function') handler.onStart();
+        } else if (event === "completed") {
+          activeAudioRequests.delete(requestId);
+          if (typeof handler.onDone === 'function') handler.onDone();
+        } else if (event === "failed" || event === "cancelled") {
+          activeAudioRequests.delete(requestId);
+          if (typeof handler.onFail === 'function') handler.onFail();
+        }
       }
     };
 
@@ -1110,7 +1118,8 @@
       return chunks;
     }
 
-    function playSingleVoiceChunk(text, onFinished, onStart = null) {
+    function playSingleVoiceChunk(text, onFinished, onStart = null, ownerTurnId = null) {
+      if (!isOwnerTurnCurrent(ownerTurnId)) return;
       if (!text || !text.trim()) {
         if (onStart) onStart();
         if (onFinished) onFinished();
@@ -1124,6 +1133,7 @@
       let hasFinishedChunk = false;
       const finishChunk = () => {
         if (hasFinishedChunk) return;
+        if (!isOwnerTurnCurrent(ownerTurnId)) return;
         hasFinishedChunk = true;
         if (onFinished) onFinished();
       };
@@ -1131,38 +1141,57 @@
       let hasStartedChunk = false;
       const triggerStartChunk = () => {
         if (!hasStartedChunk) {
+          if (!isOwnerTurnCurrent(ownerTurnId)) return;
           hasStartedChunk = true;
           if (onStart) onStart();
         }
       };
 
-      // Đảm bảo chữ hiện đồng bộ sau tối đa 200ms nếu audio chưa kịp phát
-      setTimeout(triggerStartChunk, 200);
-
       // CƠ CHẾ 1: NẾU TRÊN THIẾT BỊ ANDROID (Sử dụng Hardware MediaPlayer phát luồng âm thanh giọng Cuppy gốc)
       if (window.AndroidNova && typeof window.AndroidNova.playAudioUrl === 'function') {
         let isDone = false;
 
-        const currentTurnId = (turnController && turnController.activeTurnId) ? turnController.activeTurnId : null;
+        const currentTurnId = ownerTurnId || ((turnController && turnController.activeTurnId) ? turnController.activeTurnId : null);
         const requestId = (turnController && currentTurnId) ? turnController.createTtsRequest(currentTurnId) : ('tts_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
 
-        const reqEntry = {
+        const reqEntry = audioRegistry ? audioRegistry.registerRequest(requestId, {
+          turnId: currentTurnId
+        }) : {
+          requestId,
           turnId: currentTurnId,
           connectTimeout: null,
           cancelled: false,
+          timers: new Set(),
           onStart: null,
           onDone: null,
           onFail: null
         };
+        if (!audioRegistry) {
+          activeAudioRequests.set(requestId, reqEntry);
+        }
+
+        // Đảm bảo chữ hiện đồng bộ sau tối đa 200ms nếu audio chưa kịp phát (thuộc sở hữu của request & owner turn)
+        if (audioRegistry) {
+          audioRegistry.scheduleRequestTimer(requestId, triggerStartChunk, 200, turnController);
+        } else {
+          setTimeout(() => {
+            if (isOwnerTurnCurrent(ownerTurnId)) triggerStartChunk();
+          }, 200);
+        }
 
         const onDoneCallback = () => {
           if (isDone) return;
           isDone = true;
-          if (reqEntry.connectTimeout) {
-            clearTimeout(reqEntry.connectTimeout);
-            reqEntry.connectTimeout = null;
+          if (audioRegistry) {
+            audioRegistry.clearRequestTimers(requestId);
+            audioRegistry.cancelRequest(requestId);
+          } else {
+            if (reqEntry.connectTimeout) {
+              clearTimeout(reqEntry.connectTimeout);
+              reqEntry.connectTimeout = null;
+            }
+            activeAudioRequests.delete(requestId);
           }
-          activeAudioRequests.delete(requestId);
           window._nativeTTSFinishedCallback = null;
           window.onNativeAudioFailed = null;
           window.onNovaSpeechStarted = null;
@@ -1180,34 +1209,62 @@
         const onAudioFailed = () => {
           if (isDone) return;
           isDone = true;
-          if (reqEntry.connectTimeout) {
-            clearTimeout(reqEntry.connectTimeout);
-            reqEntry.connectTimeout = null;
+          if (audioRegistry) {
+            audioRegistry.clearRequestTimers(requestId);
+            audioRegistry.cancelRequest(requestId);
+          } else {
+            if (reqEntry.connectTimeout) {
+              clearTimeout(reqEntry.connectTimeout);
+              reqEntry.connectTimeout = null;
+            }
+            activeAudioRequests.delete(requestId);
           }
-          activeAudioRequests.delete(requestId);
           window._nativeTTSFinishedCallback = null;
           window.onNativeAudioFailed = null;
           window.onNovaSpeechStarted = null;
-          if (reqEntry.cancelled) {
-            console.log(`[Audio] Ignored onAudioFailed for cancelled request: ${requestId}`);
+          if (reqEntry.cancelled || !isOwnerTurnCurrent(ownerTurnId)) {
+            console.log(`[Audio] Ignored onAudioFailed for cancelled/stale request: ${requestId}`);
             return;
           }
           if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) {
             console.warn(`[Audio] Ignored onAudioFailed for stale turn: ${currentTurnId}`);
             return;
           }
-          console.warn("Cuppy audio failed, playing Cuppy network notice instead of male voice");
-          // TUYỆT ĐỐI KHÔNG chuyển sang giọng nam/chị Google, nếu lỗi mạng thì phát câu thông báo lỗi giọng Cuppy gốc
+          console.warn("Cuppy audio failed, playing Cuppy network notice");
+
+          // STAGE 5: Request-scoped fallback audio có định danh riêng, gắn với owner turn
+          const fallbackReqId = (turnController && currentTurnId) ? turnController.createTtsRequest(currentTurnId) : ('tts_fb_' + Date.now());
+          const fallbackEntry = audioRegistry ? audioRegistry.registerRequest(fallbackReqId, {
+            turnId: currentTurnId,
+            isFallback: true,
+            onDone: finishChunk,
+            onFail: finishChunk
+          }) : null;
+
           try {
-            window.AndroidNova.playAudioUrl("file:///android_asset/public/assets/cuppy_network_error.wav");
+            window.AndroidNova.playAudioUrl(fallbackReqId, "file:///android_asset/public/assets/cuppy_network_error.wav");
           } catch(e) {}
-          setTimeout(finishChunk, 2000);
+
+          if (audioRegistry && fallbackEntry) {
+            audioRegistry.scheduleRequestTimer(fallbackReqId, finishChunk, 2000, turnController);
+          } else {
+            setTimeout(() => {
+              if (isOwnerTurnCurrent(ownerTurnId)) finishChunk();
+            }, 2000);
+          }
         };
 
         const onStartedCallback = () => {
-          if (reqEntry.connectTimeout) {
-            clearTimeout(reqEntry.connectTimeout);
-            reqEntry.connectTimeout = null;
+          if (audioRegistry) {
+            if (reqEntry.connectTimeout) {
+              clearTimeout(reqEntry.connectTimeout);
+              reqEntry.connectTimeout = null;
+            }
+          } else {
+            if (reqEntry.connectTimeout) {
+              clearTimeout(reqEntry.connectTimeout);
+              reqEntry.connectTimeout = null;
+            }
           }
           if (reqEntry.cancelled) return;
           if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
@@ -1221,19 +1278,26 @@
         reqEntry.onDone = onDoneCallback;
         reqEntry.onFail = onAudioFailed;
 
-        activeAudioRequests.set(requestId, reqEntry);
-
         window._nativeTTSFinishedCallback = onDoneCallback;
         window.onNovaSpeechStarted = onStartedCallback;
         window.onNativeAudioFailed = onAudioFailed;
 
         // Bao gồm cả thời gian server sinh clip Cuppy lần đầu; hủy khi MediaPlayer phát.
-        reqEntry.connectTimeout = setTimeout(() => {
-          if (reqEntry.cancelled) return;
-          if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
-          console.warn("Cuppy audio connect timeout (35s)");
-          onAudioFailed();
-        }, 35000);
+        if (audioRegistry) {
+          reqEntry.connectTimeout = audioRegistry.scheduleRequestTimer(requestId, () => {
+            if (reqEntry.cancelled) return;
+            if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
+            console.warn("Cuppy audio connect timeout (35s)");
+            onAudioFailed();
+          }, 35000, turnController);
+        } else {
+          reqEntry.connectTimeout = setTimeout(() => {
+            if (reqEntry.cancelled) return;
+            if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
+            console.warn("Cuppy audio connect timeout (35s)");
+            onAudioFailed();
+          }, 35000);
+        }
 
         try {
           window.AndroidNova.playAudioUrl(requestId, cuppyTunnel);
@@ -1254,7 +1318,8 @@
       }, 7000, onStart);
     }
 
-    function playVoiceChunksSequentially(chunks, onFinished, onStart) {
+    function playVoiceChunksSequentially(chunks, onFinished, onStart, ownerTurnId = null) {
+      if (!isOwnerTurnCurrent(ownerTurnId)) return;
       if (!chunks || chunks.length === 0) {
         if (onStart) onStart();
         if (onFinished) onFinished();
@@ -1265,10 +1330,10 @@
       let hasStarted = false;
 
       // HÀM PRE-FETCH: Kỹ thuật Pipelining chuẩn của các hãng trợ lý hàng đầu (OpenAI / Google)
-      // Invariant Stage 10: Chỉ prefetch N+1 SAU KHI chunk N đã bắt đầu phát thực sự.
+      // Invariant: Chỉ prefetch N+1 SAU KHI chunk N đã bắt đầu phát thực sự.
       // Tuyệt đối không prefetch nếu lượt đã kết thúc hoặc người dùng ngắt lời!
       function prefetchChunk(idx) {
-        if (!isSpeakingNow) return;
+        if (!isSpeakingNow || !isOwnerTurnCurrent(ownerTurnId)) return;
         if (turnController && !turnController.activeTurnId) return;
         if (idx < chunks.length) {
           const nextText = chunks[idx];
@@ -1284,10 +1349,12 @@
       }
 
       function playNext() {
-        if (!isSpeakingNow) return; // Người dùng chạm ngắt lời
+        if (!isSpeakingNow || !isOwnerTurnCurrent(ownerTurnId)) return; // Người dùng chạm ngắt lời hoặc stale
         if (turnController && !turnController.activeTurnId) return; // Lượt đã bị hủy
         if (index >= chunks.length) {
-          onFinished();
+          if (isOwnerTurnCurrent(ownerTurnId)) {
+            onFinished();
+          }
           return;
         }
 
@@ -1295,19 +1362,21 @@
         const currentIndex = index;
         index++;
 
-        // Live chunk N được phát trước
+        // Live chunk N được phát trước và gắn ownerTurnId
         playSingleVoiceChunk(chunk, () => {
-          playNext();
+          if (isOwnerTurnCurrent(ownerTurnId)) {
+            playNext();
+          }
         }, () => {
           if (!hasStarted) {
             hasStarted = true;
-            if (onStart) onStart();
+            if (onStart && isOwnerTurnCurrent(ownerTurnId)) onStart();
           }
           // Sau khi chunk N đã được bắt đầu phát thực sự -> kích hoạt prefetch chunk N+1
-          if (isSpeakingNow && (!turnController || turnController.activeTurnId)) {
+          if (isSpeakingNow && isOwnerTurnCurrent(ownerTurnId)) {
             prefetchChunk(currentIndex + 1);
           }
-        });
+        }, ownerTurnId);
       }
 
       // Bắt đầu phát chunk đầu tiên
@@ -1381,19 +1450,26 @@
         return;
       }
 
+      // STAGE 1: Bắt giữ chính xác ownerTurnId tại thời điểm bắt đầu
+      const ownerTurnId = turnController?.activeTurnId || null;
+      if (!isOwnerTurnCurrent(ownerTurnId)) return;
+
       isSpeakingNow = true;
       stopListening();
 
       let hasTriggeredStart = false;
       const triggerStart = () => {
         if (!hasTriggeredStart) {
+          if (!isOwnerTurnCurrent(ownerTurnId)) return;
           hasTriggeredStart = true;
           if (onStartCallback) onStartCallback();
         }
       };
 
       // Bảo vệ: Nếu sau 250ms audio chưa kịp phát, vẫn hiển thị chữ để người dùng không phải chờ lâu
-      setTimeout(triggerStart, 250);
+      setTimeout(() => {
+        if (isOwnerTurnCurrent(ownerTurnId)) triggerStart();
+      }, 250);
 
       const orb = document.getElementById("orbContainer");
       const wave = document.getElementById("waveBox");
@@ -1403,13 +1479,15 @@
       let isFinished = false;
       const finishSpeaking = () => {
         if (isFinished) return;
+        // STAGE 3: Closure cũ của Turn A tuyệt đối KHÔNG kết thúc Turn B!
+        if (!isOwnerTurnCurrent(ownerTurnId)) return;
         isFinished = true;
         isSpeakingNow = false;
         currentTTSAudio = null;
         if (orb) orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
         if (wave) wave.classList.remove("wave-active");
-        if (turnController && turnController.activeTurnId) {
-          turnController.finishTurn(turnController.activeTurnId);
+        if (ownerTurnId && turnController && turnController.isCurrentTurn(ownerTurnId)) {
+          turnController.finishTurn(ownerTurnId);
         }
         if (onEndedCallback) {
           onEndedCallback();
@@ -1422,38 +1500,55 @@
       if (prebuiltAudio) {
         console.log("Playing Prebuilt Cuppy Voice:", prebuiltAudio);
         if (window.AndroidNova && typeof window.AndroidNova.playAudioUrl === 'function') {
-          const currentTurnId = (turnController && turnController.activeTurnId) ? turnController.activeTurnId : null;
+          const currentTurnId = ownerTurnId || ((turnController && turnController.activeTurnId) ? turnController.activeTurnId : null);
           const requestId = (turnController && currentTurnId) ? turnController.createTtsRequest(currentTurnId) : ('tts_pre_' + Date.now());
 
-          activeAudioRequests.set(requestId, {
-            turnId: currentTurnId,
-            onStart: triggerStart,
-            onDone: finishSpeaking,
-            onFail: () => {
-              const chunks = splitTextIntoVoiceChunks(cleanText, 140);
-              playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart);
-            }
-          });
+          if (audioRegistry) {
+            audioRegistry.registerRequest(requestId, {
+              turnId: currentTurnId,
+              onStart: triggerStart,
+              onDone: finishSpeaking,
+              onFail: () => {
+                const chunks = splitTextIntoVoiceChunks(cleanText, 140);
+                playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart, ownerTurnId);
+              }
+            });
+          } else {
+            activeAudioRequests.set(requestId, {
+              turnId: currentTurnId,
+              onStart: triggerStart,
+              onDone: finishSpeaking,
+              onFail: () => {
+                const chunks = splitTextIntoVoiceChunks(cleanText, 140);
+                playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart, ownerTurnId);
+              }
+            });
+          }
 
           window._nativeTTSFinishedCallback = finishSpeaking;
           window.onNovaSpeechStarted = triggerStart;
           window.onNativeAudioFailed = () => {
-            activeAudioRequests.delete(requestId);
+            if (audioRegistry) {
+              audioRegistry.cancelRequest(requestId);
+            } else {
+              activeAudioRequests.delete(requestId);
+            }
             const chunks = splitTextIntoVoiceChunks(cleanText, 140);
-            playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart);
+            playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart, ownerTurnId);
           };
           try {
             window.AndroidNova.playAudioUrl(requestId, "file:///android_asset/public/" + prebuiltAudio);
             return;
           } catch(e) {
-            activeAudioRequests.delete(requestId);
+            if (audioRegistry) audioRegistry.cancelRequest(requestId);
+            else activeAudioRequests.delete(requestId);
             console.warn("Error playing prebuilt audio via playAudioUrl:", e);
           }
         }
         playAudioWithTimeout(prebuiltAudio, finishSpeaking, (err) => {
           console.warn("Prebuilt audio error, falling back to dynamic voice:", err);
           const chunks = splitTextIntoVoiceChunks(cleanText, 140);
-          playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart);
+          playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart, ownerTurnId);
         }, 3000, triggerStart);
         return;
       }
@@ -1461,7 +1556,7 @@
       // 2. MỌI CÂU THOẠI AI, KỂ CHUYỆN, GIẢI THÍCH, TÂM SỰ:
       // Tách thành từng phân đoạn câu tự nhiên (~100-140 ký tự) để phát tuần tự mượt mà, không bao giờ mất tiếng!
       const chunks = splitTextIntoVoiceChunks(cleanText, 140);
-      playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart);
+      playVoiceChunksSequentially(chunks, finishSpeaking, triggerStart, ownerTurnId);
     }
 
     function fallbackSpeechSynthesis(text, onEnded, onStart = null) {
