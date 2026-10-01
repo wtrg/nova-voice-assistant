@@ -222,7 +222,7 @@ async def list_tasks():
 
 @app.post("/api/reminders/{reminder_id}/device-ack")
 async def device_ack_reminder(reminder_id: str, req: DeviceAckRequest):
-    """Xác nhận trạng thái đặt lịch phần cứng Android (Stage 9 & 11)"""
+    """Xác nhận trạng thái đặt lịch phần cứng Android (Stage 9 & 11, P1-03)"""
     if req.status not in ["confirmed", "device_schedule_failed"]:
         return JSONResponse(status_code=422, content={"error": "Invalid status", "status": req.status})
 
@@ -231,8 +231,10 @@ async def device_ack_reminder(reminder_id: str, req: DeviceAckRequest):
     if not task:
         return JSONResponse(status_code=404, content={"error": "Reminder not found", "reminder_id": reminder_id})
 
-    updated = update_task_device_ack(reminder_id, req.status, req.error)
-    return {"ok": True, "reminder_id": reminder_id, "status": req.status, "updated": updated}
+    updated, reason = update_task_device_ack(reminder_id, req.status, req.error)
+    if reason == "invalid_transition_from_confirmed":
+        return JSONResponse(status_code=409, content={"error": "Cannot transition from confirmed to failed", "reminder_id": reminder_id})
+    return {"ok": True, "reminder_id": reminder_id, "status": req.status, "updated": bool(updated)}
 
 @app.post("/api/proactive-prompt")
 async def get_proactive_prompt(req: ProactiveRequest):
@@ -250,28 +252,28 @@ async def get_proactive_prompt(req: ProactiveRequest):
         "audio_url": audio_url
     }
 
-@app.post("/api/dialogue", response_model=DialogueResponse)
-async def handle_dialogue(req: DialogueRequest):
-    """
-    Xử lý đàm thoại 2 chiều thông minh (V3.1: Idempotency theo session_id + turn_id, replay kết quả cũ khi retry):
-    1. Kiểm tra từ khóa dừng: 'kết thúc', 'thôi', 'tạm biệt' -> Tắt mic
-    2. Nếu người dùng nói 'có', 'ừ' sau lời nhắc -> Bật đàm thoại liên tục
-    3. Tự động giữ mở mic sau mỗi câu trả lời nếu đang trong phiên
-    """
+class DialogueServiceResult:
+    def __init__(self, status_code: int, data: Dict[str, Any], is_error: bool = False):
+        self.status_code = status_code
+        self.data = data
+        self.is_error = is_error
+
+async def process_dialogue(req: DialogueRequest, endpoint: str = "dialogue") -> DialogueServiceResult:
+    """Core dialogue service layer cô lập logic nghiệp vụ khỏi HTTP transport (P0-08, P0-09)"""
     clean_text = req.user_text.strip()
     session_id = req.session_id or "default"
     turn_id = req.turn_id.strip() if (req.turn_id and req.turn_id.strip()) else str(uuid.uuid4())
 
     from core.database import compute_request_hash, claim_turn, complete_turn, fail_turn
-    req_hash = compute_request_hash("dialogue", session_id, turn_id, clean_text, req.in_conversation)
+    req_hash = compute_request_hash(endpoint, session_id, turn_id, clean_text, req.in_conversation, req.generate_audio)
     claim_status, cached_response = claim_turn(session_id, turn_id, req_hash)
 
     if claim_status == "completed" and cached_response:
-        return cached_response
+        return DialogueServiceResult(200, cached_response)
     elif claim_status == "mismatch":
-        return JSONResponse(status_code=409, content={"error": "Turn ID already used with different payload", "turn_id": turn_id})
+        return DialogueServiceResult(409, {"error": "Turn ID already used with different payload", "turn_id": turn_id}, is_error=True)
     elif claim_status == "processing":
-        return JSONResponse(status_code=409, content={"error": "Turn is currently being processed", "turn_id": turn_id, "retryable": True})
+        return DialogueServiceResult(409, {"error": "Turn is currently being processed", "turn_id": turn_id, "retryable": True}, is_error=True)
 
     try:
         # 1. Kiểm tra người dùng muốn kết thúc cuộc trò chuyện
@@ -287,7 +289,7 @@ async def handle_dialogue(req: DialogueRequest):
                 "continue_listening": False
             }
             complete_turn(session_id, turn_id, resp_data)
-            return resp_data
+            return DialogueServiceResult(200, resp_data)
 
         # 2. Kiểm tra người dùng đồng ý trò chuyện sau lời nhắc
         if not req.in_conversation and assistant_agent.is_agree_to_chat(clean_text):
@@ -301,7 +303,7 @@ async def handle_dialogue(req: DialogueRequest):
                 "continue_listening": True
             }
             complete_turn(session_id, turn_id, resp_data)
-            return resp_data
+            return DialogueServiceResult(200, resp_data)
 
         # 3. Xử lý câu lệnh hoặc hội thoại thông thường qua Gemini (cách ly theo session_id)
         reply, action = await run_in_threadpool(assistant_agent.process_command, clean_text, session_id=session_id)
@@ -309,15 +311,14 @@ async def handle_dialogue(req: DialogueRequest):
             fail_turn(session_id, turn_id)
             error_code = action.get("error_code", "upstream_error")
             status_code = 429 if error_code == "quota_exceeded" else 503
-            return JSONResponse(status_code=status_code, content={
+            return DialogueServiceResult(status_code, {
                 "turn_id": turn_id,
                 "error": reply,
                 "error_code": error_code,
                 "retryable": bool(action.get("retryable", False))
-            })
-        audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
+            }, is_error=True)
 
-        # P0 FIX: Bảo toàn nguyên vẹn toàn bộ payload action (tasks, task_ids, summary), không ép thành chuỗi trơ trụi!
+        audio_path = await run_in_threadpool(tts_engine.synthesize, reply) if req.generate_audio else None
         formatted_action = action if isinstance(action, dict) else {"type": "chat", "action": action or "chat"}
 
         resp_data = {
@@ -328,19 +329,29 @@ async def handle_dialogue(req: DialogueRequest):
             "continue_listening": req.in_conversation
         }
         complete_turn(session_id, turn_id, resp_data)
-        return resp_data
+        return DialogueServiceResult(200, resp_data)
     except Exception as e:
         fail_turn(session_id, turn_id)
         raise e
 
+@app.post("/api/dialogue", response_model=DialogueResponse)
+async def handle_dialogue(req: DialogueRequest):
+    """
+    Xử lý đàm thoại 2 chiều thông minh (V3.2: Service layer, Idempotency & crash recovery)
+    """
+    result = await process_dialogue(req, endpoint="dialogue")
+    if result.is_error:
+        return JSONResponse(status_code=result.status_code, content=result.data)
+    return result.data
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_text(req: ChatRequest):
-    """Nhận câu nói dạng text từ điện thoại, sinh câu trả lời bạn thân & file giọng Cuppy (V3.1: Idempotency)"""
+    """Nhận câu nói dạng text từ điện thoại, sinh câu trả lời bạn thân & file giọng Cuppy (V3.2: Idempotency)"""
     session_id = req.session_id or "default"
     turn_id = req.turn_id.strip() if (req.turn_id and req.turn_id.strip()) else str(uuid.uuid4())
 
     from core.database import compute_request_hash, claim_turn, complete_turn, fail_turn
-    req_hash = compute_request_hash("chat", session_id, turn_id, req.text, False)
+    req_hash = compute_request_hash("chat", session_id, turn_id, req.text, False, False)
     claim_status, cached_response = claim_turn(session_id, turn_id, req_hash)
 
     if claim_status == "completed" and cached_response:
@@ -378,8 +389,13 @@ async def chat_text(req: ChatRequest):
         raise e
 
 @app.post("/api/voice-upload")
-async def voice_upload(file: UploadFile = File(...), in_conversation: bool = Form(False), session_id: str = Form("default")):
-    """Nhận file âm thanh thu từ mic điện thoại, dùng Groq Whisper dịch & Cuppy đọc lại (F-15: giới hạn 15MB)"""
+async def voice_upload(
+    file: UploadFile = File(...),
+    in_conversation: bool = Form(False),
+    session_id: str = Form("default"),
+    turn_id: Optional[str] = Form(None)
+):
+    """Nhận file âm thanh thu từ mic điện thoại, dùng Groq Whisper dịch & Cuppy đọc lại (P0-08, P0-09)"""
     MAX_UPLOAD_BYTES = 15 * 1024 * 1024
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
@@ -398,12 +414,22 @@ async def voice_upload(file: UploadFile = File(...), in_conversation: bool = For
             pass
         
     if not user_text:
-        return {"error": "Không nghe rõ câu nói", "continue_listening": in_conversation}
+        return {"error": "Không nghe rõ câu nói", "continue_listening": in_conversation, "turn_id": turn_id}
         
-    dialogue_req = DialogueRequest(user_text=user_text, in_conversation=in_conversation, session_id=session_id)
-    result = await handle_dialogue(dialogue_req)
-    result["user_text"] = user_text
-    return result
+    dialogue_req = DialogueRequest(
+        user_text=user_text,
+        in_conversation=in_conversation,
+        session_id=session_id,
+        turn_id=turn_id,
+        generate_audio=False
+    )
+    result = await process_dialogue(dialogue_req, endpoint="voice-upload")
+    if result.is_error:
+        return JSONResponse(status_code=result.status_code, content=result.data)
+
+    resp = dict(result.data)
+    resp["user_text"] = user_text
+    return resp
 
 @app.get("/", response_class=HTMLResponse)
 async def mobile_index():
