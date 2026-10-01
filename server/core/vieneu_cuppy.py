@@ -59,6 +59,17 @@ class CuppyNeuralTTS:
 
     def _init_engine(self):
         """Khởi tạo VieNeu v3turbo và nạp mẫu giọng Cuppy reference một lần duy nhất khi boot."""
+        ref_path = Path(CUPPY_REFERENCE_WAV) if CUPPY_REFERENCE_WAV else None
+        has_ref = bool(ref_path and ref_path.exists())
+        has_preset = bool(MASTER_VOICES_PATH and MASTER_VOICES_PATH.exists())
+
+        if not has_ref and not has_preset:
+            logger.info("Khong co Reference WAV hoac Preset JSON hop le, bo qua khoi tao local Vieneu.")
+            self.model_loaded = False
+            self.voice_loaded = False
+            self.voice_source = "none"
+            return
+
         try:
             from vieneu import Vieneu
             logger.info("Dang khoi tao Vieneu model v3turbo...")
@@ -71,8 +82,7 @@ class CuppyNeuralTTS:
             return
 
         # 1. Ưu tiên hàng đầu: Nạp và clone giọng từ Reference WAV
-        ref_path = Path(CUPPY_REFERENCE_WAV) if CUPPY_REFERENCE_WAV else None
-        if ref_path and ref_path.exists():
+        if has_ref:
             try:
                 try:
                     info = sf.info(str(ref_path))
