@@ -20,28 +20,44 @@ client = TestClient(app)
 
 def test_turn_id_preserved_when_provided_by_client():
     """Stage 5 Invariant: client turn_id survives round trip through dialogue and chat"""
-    client_turn_id = "turn-client-uuid-999888"
+    client_turn_id_dialogue = "turn-client-uuid-999888"
     
     # Test /api/dialogue
-    res_dialogue = client.post("/api/dialogue", json={
+    payload_dialogue = {
         "user_text": "tạm biệt, tắt mic đi",
         "in_conversation": True,
         "session_id": "test_turn_session",
-        "turn_id": client_turn_id
-    })
+        "turn_id": client_turn_id_dialogue
+    }
+    res_dialogue = client.post("/api/dialogue", json=payload_dialogue)
     assert res_dialogue.status_code == 200
     data_dialogue = res_dialogue.json()
-    assert data_dialogue["turn_id"] == client_turn_id, "Backend must echo back client turn_id"
+    assert data_dialogue["turn_id"] == client_turn_id_dialogue, "Backend must echo back client turn_id"
 
-    # Test /api/chat
+    # Idempotency: same payload returns exact same response
+    res_dialogue_replay = client.post("/api/dialogue", json=payload_dialogue)
+    assert res_dialogue_replay.status_code == 200
+    assert res_dialogue_replay.json() == data_dialogue
+
+    # Mismatched payload reusing same turn ID must return 409
+    res_mismatch = client.post("/api/dialogue", json={
+        "user_text": "câu nói khác hoàn toàn",
+        "in_conversation": True,
+        "session_id": "test_turn_session",
+        "turn_id": client_turn_id_dialogue
+    })
+    assert res_mismatch.status_code == 409
+
+    # Test /api/chat with distinct turn ID
+    client_turn_id_chat = "turn-client-uuid-777666"
     res_chat = client.post("/api/chat", json={
         "text": "mở youtube",
         "session_id": "test_turn_session",
-        "turn_id": client_turn_id
+        "turn_id": client_turn_id_chat
     })
     assert res_chat.status_code == 200
     data_chat = res_chat.json()
-    assert data_chat["turn_id"] == client_turn_id, "Backend must echo back client turn_id in chat"
+    assert data_chat["turn_id"] == client_turn_id_chat, "Backend must echo back client turn_id in chat"
 
 def test_canonical_reminder_id_persisted_and_device_ack_confirmed():
     """Stage 8 & Stage 9: canonical reminder_id persisted in DB and confirmed via device ACK"""
@@ -106,3 +122,19 @@ def test_device_ack_failure_marks_task_failed_and_excluded_from_due():
     active = get_all_active_tasks()
     failed_active = [t for t in active if t.get("reminder_id") == canonical_id]
     assert len(failed_active) == 0, "Failed native schedule must not remain in active tasks"
+
+def test_device_ack_endpoint_validations():
+    """Stage 11: Server endpoint must validate status (422) and unknown reminder (404)"""
+    # 1. Invalid status returns 422
+    res_invalid_status = client.post("/api/reminders/some-valid-id/device-ack", json={
+        "status": "arbitrary_unknown_status"
+    })
+    assert res_invalid_status.status_code == 422
+
+    # 2. Unknown reminder returns 404
+    non_existent_id = f"non-existent-rem-{uuid.uuid4().hex}"
+    res_not_found = client.post(f"/api/reminders/{non_existent_id}/device-ack", json={
+        "status": "confirmed"
+    })
+    assert res_not_found.status_code == 404
+    assert res_not_found.json()["error"] == "Reminder not found"

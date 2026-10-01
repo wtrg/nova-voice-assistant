@@ -8,9 +8,14 @@
  */
 
 let _reminderIdGen = null;
+let _reminderDeliveryPolicy = null;
 if (typeof require !== 'undefined') {
   try {
     _reminderIdGen = require('./ReminderId');
+  } catch (ignored) {}
+  try {
+    const mod = require('./ReminderDeliveryPolicy');
+    _reminderDeliveryPolicy = mod.ReminderDeliveryPolicy || mod;
   } catch (ignored) {}
 }
 
@@ -93,8 +98,10 @@ class ReminderClient {
     };
   }
 
+
+
   /**
-   * Gọi bridge Android để đặt báo thức chính xác với ACK
+   * Gọi bridge Android để đặt báo thức chính xác với ACK (V3.1: Fail-closed validation)
    * @param {Object} task
    * @returns {Promise<{ ok: boolean, reminder_id: string, pending_intent_id?: number, exact?: boolean, error?: string }>}
    */
@@ -123,18 +130,42 @@ class ReminderClient {
         }));
 
         let ack = null;
-        if (typeof ackStr === 'string' && ackStr.startsWith("{")) {
-          ack = JSON.parse(ackStr);
+        const policy = (typeof window !== 'undefined' && window.ReminderDeliveryPolicy) || _reminderDeliveryPolicy;
+        if (policy && typeof policy.validateNativeAck === 'function') {
+          ack = policy.validateNativeAck(ackStr, reminderId);
         } else {
-          ack = { ok: true, reminder_id: reminderId, exact: true };
+          // Inline fail-closed fallback
+          if (typeof ackStr === 'string') {
+            try {
+              const parsed = JSON.parse(ackStr);
+              if (parsed && typeof parsed.ok === 'boolean' && parsed.reminder_id === reminderId) {
+                ack = parsed;
+              } else {
+                ack = { ok: false, reminder_id: reminderId, error: "invalid_native_ack" };
+              }
+            } catch (e) {
+              ack = { ok: false, reminder_id: reminderId, error: "invalid_native_ack" };
+            }
+          } else if (ackStr && typeof ackStr === 'object' && typeof ackStr.ok === 'boolean' && ackStr.reminder_id === reminderId) {
+            ack = ackStr;
+          } else {
+            ack = { ok: false, reminder_id: reminderId, error: "invalid_native_ack" };
+          }
         }
-        this.scheduledAlarms.set(reminderId, { task, ack });
-        this.sendDeviceAck(reminderId, ack.ok ? "confirmed" : "device_schedule_failed", ack.message || ack.error);
+
+        if (ack && ack.ok) {
+          this.scheduledAlarms.set(reminderId, { task, ack });
+          this.sendDeviceAck(reminderId, "confirmed");
+        } else {
+          const failErr = (ack && (ack.error || ack.message)) || "invalid_native_ack";
+          this.sendDeviceAck(reminderId, "device_schedule_failed", failErr);
+        }
         return ack;
       } catch (err) {
         console.error("[ReminderClient] scheduleNativeAlarm error:", err);
+        const failAck = { ok: false, reminder_id: reminderId, error: err.message };
         this.sendDeviceAck(reminderId, "device_schedule_failed", err.message);
-        return { ok: false, reminder_id: reminderId, error: err.message };
+        return failAck;
       }
     }
 
@@ -152,21 +183,57 @@ class ReminderClient {
   }
 
   async sendDeviceAck(reminderId, status, error = null) {
-    if (typeof fetch !== 'function' || !reminderId) return;
-    try {
-      let baseUrl = "";
-      if (typeof getApiBaseUrl === 'function') {
-        baseUrl = getApiBaseUrl();
-      } else if (typeof window !== 'undefined' && window.getApiBaseUrl) {
-        baseUrl = window.getApiBaseUrl();
+    if (!reminderId) return { ok: false, error: "missing_reminder_id" };
+    if (status !== "confirmed" && status !== "device_schedule_failed") {
+      return { ok: false, error: "invalid_status" };
+    }
+    if (typeof fetch !== 'function') {
+      return { ok: true, status, simulated: true };
+    }
+
+    let baseUrl = "";
+    if (typeof getApiBaseUrl === 'function') {
+      baseUrl = getApiBaseUrl();
+    } else if (typeof window !== 'undefined' && window.getApiBaseUrl) {
+      baseUrl = window.getApiBaseUrl();
+    }
+    if (!baseUrl) {
+      return { ok: false, error: "missing_api_base_url" };
+    }
+
+    const payload = JSON.stringify({ status, error: error ? String(error) : null });
+    const retryDelays = [300, 900, 1800];
+
+    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+      try {
+        const resp = await fetch(`${baseUrl}/api/reminders/${encodeURIComponent(reminderId)}/device-ack`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload
+        });
+        if (resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          return { ok: true, status, data };
+        } else {
+          const errData = await resp.json().catch(() => ({}));
+          console.warn(`[ReminderClient] sendDeviceAck attempt ${attempt + 1} failed: HTTP ${resp.status}`, errData);
+          if (attempt === retryDelays.length || resp.status === 404 || resp.status === 422) {
+            return { ok: false, status, httpStatus: resp.status, error: errData.error || `HTTP ${resp.status}` };
+          }
+        }
+      } catch (err) {
+        console.warn(`[ReminderClient] sendDeviceAck network error attempt ${attempt + 1}:`, err);
+        if (attempt === retryDelays.length) {
+          return { ok: false, status, error: err.message };
+        }
       }
-      if (!baseUrl) return;
-      await fetch(`${baseUrl}/api/reminders/${encodeURIComponent(reminderId)}/device-ack`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, error: error ? String(error) : null })
-      });
-    } catch (ignored) {}
+
+      if (attempt < retryDelays.length) {
+        await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+      }
+    }
+
+    return { ok: false, status, error: "max_retries_exceeded" };
   }
 
   cancelNativeAlarm(reminderId) {

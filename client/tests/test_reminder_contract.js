@@ -1,6 +1,7 @@
 const assert = require('assert');
 const { ReminderClient } = require('../www/js/reminders/ReminderClient');
 const { generateReminderId, reminderIdToRequestCode } = require('../www/js/reminders/ReminderId');
+const { ReminderDeliveryPolicy } = require('../www/js/reminders/ReminderDeliveryPolicy');
 
 console.log("Running test_reminder_contract.js...");
 
@@ -120,11 +121,15 @@ async function runTests() {
 
   // Logic polling với window.AndroidNova tồn tại (native runtime)
   global.window.AndroidNova = {
+    scheduleNativeAlarm: () => "{}",
     claimAlarmSession: (sid) => sid === "valid_session_123"
   };
 
+  assert.strictEqual(ReminderDeliveryPolicy.isNativeAuthority(global.window), true, "Must detect native authority");
+  assert.strictEqual(ReminderDeliveryPolicy.shouldPollBrowserDelivery(global.window), false, "Must not allow browser poll in native runtime");
+
   function simulatePollInterval(nowStr) {
-    if (global.window.AndroidNova) {
+    if (!ReminderDeliveryPolicy.shouldPollBrowserDelivery(global.window)) {
       return; // Android runtime: AlarmManager handles delivery
     }
     localTasksMock.forEach(task => {
@@ -158,9 +163,12 @@ async function runTests() {
   assert.strictEqual(localTasksMock[0].notified, true, "Local task must be marked notified on native trigger");
   console.log("✓ Invariant: native reminder + local UI -> one delivery only pass");
 
-  // Test Case 7: Browser-only reminder polling still works
+  // Test Case 7: Browser-only reminder polling still works via ReminderDeliveryPolicy
   const savedAndroidNova = global.window.AndroidNova;
   delete global.window.AndroidNova;
+
+  assert.strictEqual(ReminderDeliveryPolicy.isNativeAuthority(global.window), false, "Must detect non-native environment");
+  assert.strictEqual(ReminderDeliveryPolicy.shouldPollBrowserDelivery(global.window), true, "Must enable browser polling in browser environment");
 
   let browserLocalTasks = [
     { id: "rem_browser_1", title: "Tập yoga", scheduled_time: "2026-10-01 06:00", notified: false }
@@ -168,7 +176,7 @@ async function runTests() {
   let browserDeliveryCount = 0;
 
   function simulateBrowserPoll(nowStr) {
-    if (global.window.AndroidNova) return;
+    if (!ReminderDeliveryPolicy.shouldPollBrowserDelivery(global.window)) return;
     browserLocalTasks.forEach(task => {
       if (!task.notified && task.scheduled_time <= nowStr) {
         task.notified = true;
@@ -199,7 +207,54 @@ async function runTests() {
   assert.strictEqual(staleDeliveryCount, 0, "Stale claim failure must NOT start duplicate reminder");
   console.log("✓ Invariant: Stale alarm claim failure rejects trigger pass");
 
+  // Test Case 9: Native ACK fail-closed validation (Stage 10 & 16)
+  const expectedId = "rem_canonical_999";
+
+  // Case 9a: Null or undefined ACK
+  const ackNull = ReminderDeliveryPolicy.validateNativeAck(null, expectedId);
+  assert.strictEqual(ackNull.ok, false);
+  assert.strictEqual(ackNull.error, "invalid_native_ack");
+
+  // Case 9b: Malformed non-JSON string
+  const ackInvalidJson = ReminderDeliveryPolicy.validateNativeAck("invalid-json{", expectedId);
+  assert.strictEqual(ackInvalidJson.ok, false);
+  assert.strictEqual(ackInvalidJson.error, "invalid_native_ack");
+
+  // Case 9c: Non-boolean ok property
+  const ackStringOk = ReminderDeliveryPolicy.validateNativeAck({ ok: "true", reminder_id: expectedId }, expectedId);
+  assert.strictEqual(ackStringOk.ok, false);
+  assert.strictEqual(ackStringOk.error, "invalid_native_ack");
+
+  // Case 9d: Mismatched reminder ID
+  const ackMismatched = ReminderDeliveryPolicy.validateNativeAck(
+    { ok: true, reminder_id: "wrong_id_123" },
+    expectedId
+  );
+  assert.strictEqual(ackMismatched.ok, false);
+  assert.strictEqual(ackMismatched.error, "mismatched_reminder_id");
+
+  // Case 9e: Missing expected reminder ID
+  const ackMissingExpected = ReminderDeliveryPolicy.validateNativeAck({ ok: true, reminder_id: expectedId }, null);
+  assert.strictEqual(ackMissingExpected.ok, false);
+  assert.strictEqual(ackMissingExpected.error, "missing_expected_reminder_id");
+
+  // Case 9f: Valid ACK with matching reminder ID
+  const validPayload = {
+    ok: true,
+    reminder_id: expectedId,
+    exact: true,
+    pending_intent_id: 8888,
+    scheduled_at_epoch_ms: 1790800000000
+  };
+  const ackValid = ReminderDeliveryPolicy.validateNativeAck(JSON.stringify(validPayload), expectedId);
+  assert.strictEqual(ackValid.ok, true);
+  assert.strictEqual(ackValid.reminder_id, expectedId);
+  assert.strictEqual(ackValid.exact, true);
+  assert.strictEqual(ackValid.pending_intent_id, 8888);
+  console.log("✓ Invariant: Native ACK fail-closed validation pass");
+
   console.log("ALL REMINDER CONTRACT REGRESSION TESTS PASSED PERFECTLY!");
+
 }
 
 runTests().catch(err => {
