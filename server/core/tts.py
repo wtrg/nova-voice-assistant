@@ -37,6 +37,40 @@ try:
 except Exception as e:
     logger.warning(f"Không thể khởi tạo pygame.mixer: {e}")
 
+class SaydiKeyPool:
+    """Quản lý danh sách nhiều API key Saydi AI với cơ chế xoay vòng và tự động chuyển key khi hết quota"""
+    def __init__(self, raw_keys: str):
+        import re
+        self.keys = [k.strip() for k in re.split(r'[,;\n\r]+', raw_keys or "") if k.strip()]
+        self.current_index = 0
+        self.exhausted_keys = set()
+
+    def get_current_key(self) -> Optional[str]:
+        if not self.keys:
+            return None
+        # Ưu tiên lấy key chưa bị đánh dấu hết hạn/hết quota
+        for _ in range(len(self.keys)):
+            key = self.keys[self.current_index % len(self.keys)]
+            if key not in self.exhausted_keys:
+                return key
+            self.current_index = (self.current_index + 1) % len(self.keys)
+        # Nếu tất cả các key đều bị đánh dấu trong session, reset để thử lại một lần nữa
+        self.exhausted_keys.clear()
+        return self.keys[self.current_index % len(self.keys)]
+
+    def mark_key_exhausted(self, key: str):
+        self.exhausted_keys.add(key)
+        if self.keys:
+            self.current_index = (self.current_index + 1) % len(self.keys)
+
+    def rotate_next(self):
+        if self.keys:
+            self.current_index = (self.current_index + 1) % len(self.keys)
+
+    def has_keys(self) -> bool:
+        return len(self.keys) > 0
+
+
 class TextToSpeech:
     def __init__(self):
         self.provider = TTS_PROVIDER
@@ -47,7 +81,7 @@ class TextToSpeech:
         self.eleven_key = ELEVENLABS_API_KEY
         self.eleven_voice = ELEVENLABS_VOICE_ID
         self.edge_voice = EDGE_TTS_VOICE
-        self.saydi_key = SAYDI_API_KEY
+        self.saydi_pool = SaydiKeyPool(SAYDI_API_KEY)
         self.saydi_voice = SAYDI_VOICE
 
     def _generate_cuppy_tts(self, text: str, output_path: str) -> bool:
@@ -98,31 +132,43 @@ class TextToSpeech:
         await communicate.save(output_path)
 
     def _generate_saydi_tts(self, text: str, output_path: str) -> bool:
-        """Sinh giọng nói Cuppy thông qua Saydi AI Voice Studio API (voice.saydi.ai)"""
-        if not self.saydi_key:
+        """Sinh giọng nói Cuppy thông qua Saydi AI Voice Studio API với Key Pool đa tài khoản"""
+        if not self.saydi_pool or not self.saydi_pool.has_keys():
             return False
-        try:
-            url = "https://voice.saydi.ai/api/v1/audio/speech"
-            headers = {
-                "Authorization": f"Bearer {self.saydi_key}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": "tts-1",
-                "voice": self.saydi_voice or "Saydi - Cuppy — Trợ lý ảo nữ",
-                "input": text,
-                "response_format": "mp3"
-            }
-            resp = requests.post(url, json=payload, headers=headers, timeout=12.0)
-            if resp.status_code == 200 and len(resp.content) > 1000:
-                with open(output_path, "wb") as f:
-                    f.write(resp.content)
-                logger.info(f"[TTS] Đã sinh giọng Cuppy thành công từ Saydi AI ({len(resp.content)} bytes)")
-                return True
-            else:
-                logger.warning(f"[TTS] Saydi AI trả về {resp.status_code}: {resp.text[:150]}")
-        except Exception as e:
-            logger.warning(f"[TTS] Không thể kết nối Saydi AI API: {e}")
+
+        max_attempts = min(len(self.saydi_pool.keys), 5)
+        for _ in range(max_attempts):
+            active_key = self.saydi_pool.get_current_key()
+            if not active_key:
+                break
+            try:
+                url = "https://voice.saydi.ai/api/v1/audio/speech"
+                headers = {
+                    "Authorization": f"Bearer {active_key}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "model": "tts-1",
+                    "voice": self.saydi_voice or "Saydi - Cuppy — Trợ lý ảo nữ",
+                    "input": text,
+                    "response_format": "mp3"
+                }
+                resp = requests.post(url, json=payload, headers=headers, timeout=12.0)
+                if resp.status_code == 200 and len(resp.content) > 1000:
+                    with open(output_path, "wb") as f:
+                        f.write(resp.content)
+                    logger.info(f"[TTS] Đã sinh giọng Cuppy thành công từ Saydi AI qua key {active_key[:10]}... ({len(resp.content)} bytes)")
+                    self.saydi_pool.rotate_next()
+                    return True
+                elif resp.status_code in [401, 402, 403, 429]:
+                    logger.warning(f"[TTS] Saydi key {active_key[:10]}... hết hạn hoặc hết quota ({resp.status_code}), chuyển sang key dự phòng tiếp theo...")
+                    self.saydi_pool.mark_key_exhausted(active_key)
+                else:
+                    logger.warning(f"[TTS] Saydi AI trả về {resp.status_code}: {resp.text[:150]}")
+                    self.saydi_pool.rotate_next()
+            except Exception as e:
+                logger.warning(f"[TTS] Không thể kết nối Saydi AI API với key {active_key[:10]}...: {e}")
+                self.saydi_pool.rotate_next()
         return False
 
     def _generate_elevenlabs_clone(self, text: str, output_path: str) -> bool:
@@ -161,8 +207,8 @@ class TextToSpeech:
         if self.provider == "cuppy" or self.cuppy_url:
             success = self._generate_cuppy_tts(text, output_file)
 
-        # Ưu tiên 2: Saydi AI Voice Studio (voice.saydi.ai) với giọng Cuppy trực tuyến
-        if not success and self.saydi_key:
+        # Ưu tiên 2: Saydi AI Voice Studio (voice.saydi.ai) với giọng Cuppy trực tuyến (Key Pool đa tài khoản)
+        if not success and self.saydi_pool and self.saydi_pool.has_keys():
             success = self._generate_saydi_tts(text, output_file)
             
         if not success and self.provider == "elevenlabs":
@@ -217,7 +263,7 @@ class TextToSpeech:
         except Exception:
             pass
         if not cuppy_available:
-            cuppy_available = bool(self.cuppy_url or self.saydi_key)
+            cuppy_available = bool(self.cuppy_url or (self.saydi_pool and self.saydi_pool.has_keys()))
 
         return {
             "tts_primary": "cuppy",
