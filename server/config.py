@@ -38,6 +38,10 @@ ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "")
 EDGE_TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "vi-VN-HoaiMyNeural")
 
+# Cấu hình Saydi AI Voice Studio (voice.saydi.ai)
+SAYDI_API_KEY = os.getenv("SAYDI_API_KEY", "")
+SAYDI_VOICE = os.getenv("SAYDI_VOICE", "Saydi - Cuppy — Trợ lý ảo nữ")
+
 # Cấu hình Wake Word
 WAKE_WORD = os.getenv("WAKE_WORD", "hey_nova")
 WAKE_WORD_SENSITIVITY = float(os.getenv("WAKE_WORD_SENSITIVITY", "0.5"))

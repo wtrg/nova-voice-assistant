@@ -13,6 +13,10 @@ services:
         sync: false
       - key: TIMEZONE
         value: Asia/Ho_Chi_Minh
+      - key: SAYDI_API_KEY
+        sync: false
+      - key: SAYDI_VOICE
+        value: "Saydi - Cuppy — Trợ lý ảo nữ"
       - key: NOVA_API_BASE_URL
         fromService:
           type: web

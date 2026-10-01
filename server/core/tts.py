@@ -21,6 +21,8 @@ from config import (
     ELEVENLABS_API_KEY, 
     ELEVENLABS_VOICE_ID, 
     EDGE_TTS_VOICE,
+    SAYDI_API_KEY,
+    SAYDI_VOICE,
     DATA_DIR
 )
 
@@ -45,6 +47,8 @@ class TextToSpeech:
         self.eleven_key = ELEVENLABS_API_KEY
         self.eleven_voice = ELEVENLABS_VOICE_ID
         self.edge_voice = EDGE_TTS_VOICE
+        self.saydi_key = SAYDI_API_KEY
+        self.saydi_voice = SAYDI_VOICE
 
     def _generate_cuppy_tts(self, text: str, output_path: str) -> bool:
         """Sinh giọng nói trợ lý ảo Cuppy thông qua Vieneu Neural TTS Engine"""
@@ -93,6 +97,34 @@ class TextToSpeech:
         communicate = edge_tts.Communicate(text, self.edge_voice)
         await communicate.save(output_path)
 
+    def _generate_saydi_tts(self, text: str, output_path: str) -> bool:
+        """Sinh giọng nói Cuppy thông qua Saydi AI Voice Studio API (voice.saydi.ai)"""
+        if not self.saydi_key:
+            return False
+        try:
+            url = "https://voice.saydi.ai/api/v1/audio/speech"
+            headers = {
+                "Authorization": f"Bearer {self.saydi_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": "tts-1",
+                "voice": self.saydi_voice or "Saydi - Cuppy — Trợ lý ảo nữ",
+                "input": text,
+                "response_format": "mp3"
+            }
+            resp = requests.post(url, json=payload, headers=headers, timeout=12.0)
+            if resp.status_code == 200 and len(resp.content) > 1000:
+                with open(output_path, "wb") as f:
+                    f.write(resp.content)
+                logger.info(f"[TTS] Đã sinh giọng Cuppy thành công từ Saydi AI ({len(resp.content)} bytes)")
+                return True
+            else:
+                logger.warning(f"[TTS] Saydi AI trả về {resp.status_code}: {resp.text[:150]}")
+        except Exception as e:
+            logger.warning(f"[TTS] Không thể kết nối Saydi AI API: {e}")
+        return False
+
     def _generate_elevenlabs_clone(self, text: str, output_path: str) -> bool:
         """Sinh giọng nói clone bằng ElevenLabs API"""
         if not self.eleven_key or not self.eleven_voice:
@@ -125,9 +157,13 @@ class TextToSpeech:
         output_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.mp3")
         
         success = False
-        # Ưu tiên số 1: Giọng Cuppy của người dùng
+        # Ưu tiên 1: Giọng Cuppy Vieneu / Local endpoint
         if self.provider == "cuppy" or self.cuppy_url:
             success = self._generate_cuppy_tts(text, output_file)
+
+        # Ưu tiên 2: Saydi AI Voice Studio (voice.saydi.ai) với giọng Cuppy trực tuyến
+        if not success and self.saydi_key:
+            success = self._generate_saydi_tts(text, output_file)
             
         if not success and self.provider == "elevenlabs":
             success = self._generate_elevenlabs_clone(text, output_file)
@@ -179,7 +215,9 @@ class TextToSpeech:
             from core.vieneu_cuppy import cuppy_engine
             cuppy_available = cuppy_engine.get_health().get("model_loaded", False)
         except Exception:
-            cuppy_available = bool(self.cuppy_url or self.cuppy_local)
+            pass
+        if not cuppy_available:
+            cuppy_available = bool(self.cuppy_url or self.saydi_key)
 
         return {
             "tts_primary": "cuppy",
