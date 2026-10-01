@@ -11,7 +11,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 # Phiên bản hệ thống & Handshake
 SERVER_VERSION = "2.0.0"
 MIN_CLIENT_VERSION = "2.0.0"
-NOVA_API_BASE_URL = os.getenv("NOVA_API_BASE_URL", "https://api.nova-assistant.app")
+NOVA_API_BASE_URL = os.getenv("NOVA_API_BASE_URL", "https://nova-voice-assistant-6l5s.onrender.com")
 
 # Cấu hình Cơ sở dữ liệu SQLite
 DB_PATH = DATA_DIR / "assistant.db"

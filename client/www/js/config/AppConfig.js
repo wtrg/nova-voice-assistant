@@ -10,7 +10,7 @@
   'use strict';
 
   const AppConfig = {
-    apiBaseUrl: "https://api.nova-assistant.app",
+    apiBaseUrl: "https://nova-voice-assistant-6l5s.onrender.com",
     environment: "production",
     appVersion: "2.0.0",
     buildSha: "v2.0.0",

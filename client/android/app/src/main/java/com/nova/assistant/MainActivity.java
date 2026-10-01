@@ -63,7 +63,7 @@ public class MainActivity extends BridgeActivity {
     private boolean isNativeListening = false;
     private final java.util.concurrent.atomic.AtomicLong currentAudioRequestId = new java.util.concurrent.atomic.AtomicLong(0);
 
-    public static final String DEFAULT_PRODUCTION_URL = "https://api.nova-assistant.app";
+    public static final String DEFAULT_PRODUCTION_URL = "https://nova-voice-assistant-6l5s.onrender.com";
     public static final String DEFAULT_DEBUG_URL = "http://10.0.2.2:8000";
 
     private String getServerBaseUrl() {
