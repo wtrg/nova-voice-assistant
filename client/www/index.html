@@ -1630,8 +1630,13 @@
 
     async function callBackendDialogue(userText) {
       const primaryUrl = getApiBaseUrl();
-      const isDev = (typeof AppConfig !== 'undefined' && AppConfig.environment === 'development');
-      const candidates = [...new Set([primaryUrl, isDev ? "http://10.0.2.2:8000" : null].filter(Boolean))];
+      const candidates = [...new Set([
+        primaryUrl,
+        "https://nova-voice-assistant-6l5s.onrender.com"
+      ].filter(u => u && !u.includes("10.0.2.2")))];
+      if (candidates.length === 0) {
+        candidates.push("https://nova-voice-assistant-6l5s.onrender.com");
+      }
 
       let lastError = null;
       for (const baseUrl of candidates) {

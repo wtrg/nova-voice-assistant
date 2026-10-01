@@ -37,6 +37,10 @@
           this.apiBaseUrl = savedUrl.trim().replace(/\/+$/, "");
         }
       }
+      // Khử triệt để địa chỉ emulator 10.0.2.2 trên thiết bị thật
+      if (this.apiBaseUrl && (this.apiBaseUrl.includes("10.0.2.2") || this.apiBaseUrl.includes("localhost"))) {
+        this.apiBaseUrl = "https://nova-voice-assistant-6l5s.onrender.com";
+      }
     },
 
     getApiBaseUrl: function() {

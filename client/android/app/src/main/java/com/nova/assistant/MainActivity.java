@@ -64,12 +64,11 @@ public class MainActivity extends BridgeActivity {
     private final java.util.concurrent.atomic.AtomicLong currentAudioRequestId = new java.util.concurrent.atomic.AtomicLong(0);
 
     public static final String DEFAULT_PRODUCTION_URL = "https://nova-voice-assistant-6l5s.onrender.com";
-    public static final String DEFAULT_DEBUG_URL = "http://10.0.2.2:8000";
+    public static final String DEFAULT_DEBUG_URL = "https://nova-voice-assistant-6l5s.onrender.com";
 
     private String getServerBaseUrl() {
         SharedPreferences prefs = getSharedPreferences("nova_config", Context.MODE_PRIVATE);
-        String defaultUrl = BuildConfig.DEBUG ? DEFAULT_DEBUG_URL : DEFAULT_PRODUCTION_URL;
-        return prefs.getString("server_base_url", defaultUrl);
+        return prefs.getString("server_base_url", DEFAULT_PRODUCTION_URL);
     }
 
     @Override
@@ -561,7 +560,7 @@ public class MainActivity extends BridgeActivity {
                         try {
                             org.json.JSONObject obj = new org.json.JSONObject();
                             obj.put("apiBaseUrl", getServerBaseUrl());
-                            obj.put("environment", BuildConfig.DEBUG ? "development" : "production");
+                            obj.put("environment", "production");
                             obj.put("appVersion", BuildConfig.VERSION_NAME);
                             obj.put("buildSha", "v2.0.0");
                             obj.put("featureHotword", NovaHotwordService.isEnabled(MainActivity.this));
