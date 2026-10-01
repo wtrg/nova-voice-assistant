@@ -56,10 +56,29 @@ pip install -r requirements.txt -r requirements-dev.txt
 uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-#### 3. Chạy Kiểm Thử Backend (Pytest)
+#### 3. Chạy Kiểm Thử Backend & Voice Clone (Pytest)
 ```bash
+# Kiểm thử toàn bộ hệ thống backend (31 unit & contract tests):
 python -m pytest server/tests -v
+
+# Kiểm thử độc lập bộ giọng Cuppy Reference Voice:
+python -m pytest server/tests/test_cuppy_voice.py -v
+
+# Đánh giá chất lượng 6 câu thoại mẫu Cuppy:
+python server/tools/evaluate_cuppy_phrases.py
+
+# Kiểm tra thông số file âm thanh reference WAV:
+python server/tools/inspect_voice.py "path/to/cuppy_sample.wav"
 ```
+
+##### 🎙️ Cấu hình Cuppy Voice Clone (VieNeu v3 Turbo):
+```env
+TTS_PROVIDER=cuppy
+CUPPY_VOICE=cuppy
+CUPPY_REFERENCE_WAV=C:/Users/Lenovo/AppData/Local/WTStudio/saydi-tts-service/cuppy_sample_8_12s.wav
+CUPPY_REFERENCE_DENOISE=true
+```
+Voice profile được trích xuất và lưu trong RAM 1 lần duy nhất khi server khởi động. Khi thay đổi file WAV, cache key tự động tính toán lại fingerprint và làm mới toàn bộ audio cache.
 
 #### 4. Biên Dịch & Kiểm Thử Client (Android / Web)
 Yêu cầu Node.js 22+, JDK 21 và Android SDK 34+:
