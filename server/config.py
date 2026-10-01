@@ -2,9 +2,11 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+BASE_DIR = Path(__file__).resolve().parent
+# Ưu tiên nạp server/.env trước, sau đó nạp file .env ở thư mục gốc (nếu có)
+load_dotenv(BASE_DIR / ".env")
 load_dotenv()
 
-BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("NOVA_DATA_DIR", str(BASE_DIR / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 

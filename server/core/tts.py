@@ -107,11 +107,8 @@ class TextToSpeech:
             logger.warning(f"Local Vieneu Cuppy error: {e}")
 
         # Dự phòng các endpoint nếu có
-        endpoints = [
-            f"{self.cuppy_local}",
-            "http://127.0.0.1:5055/v1/audio/speech",
-            f"{self.cuppy_url}"
-        ]
+        raw_endpoints = [self.cuppy_local, "http://127.0.0.1:5055/v1/audio/speech", self.cuppy_url]
+        endpoints = [ep.strip() for ep in raw_endpoints if ep and ep.strip()]
         
         headers = {"Content-Type": "application/json"}
         
@@ -213,13 +210,13 @@ class TextToSpeech:
         output_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.mp3")
         
         success = False
-        # Ưu tiên 1: Giọng Cuppy Vieneu / Local endpoint
-        if self.provider == "cuppy" or self.cuppy_url:
-            success = self._generate_cuppy_tts(text, output_file)
-
-        # Ưu tiên 2: Saydi AI Voice Studio (voice.saydi.ai) với giọng Cuppy trực tuyến (Key Pool đa tài khoản)
-        if not success and self.saydi_pool and self.saydi_pool.has_keys():
+        # Ưu tiên 1: Saydi AI Voice Studio (Online Cuppy 24/7) khi có key
+        if self.saydi_pool and self.saydi_pool.has_keys():
             success = self._generate_saydi_tts(text, output_file)
+
+        # Ưu tiên 2: Giọng Cuppy Vieneu / Local endpoint
+        if not success and (self.provider == "cuppy" or self.cuppy_url):
+            success = self._generate_cuppy_tts(text, output_file)
             
         if not success and self.provider == "elevenlabs":
             success = self._generate_elevenlabs_clone(text, output_file)
@@ -231,7 +228,7 @@ class TextToSpeech:
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(lambda: asyncio.run(self._generate_edge_tts(text, output_file)))
-                    future.result(timeout=10)
+                    future.result(timeout=15)
                 success = True
             except Exception as e:
                 logger.error(f"Lỗi Edge-TTS fallback: {e}")
