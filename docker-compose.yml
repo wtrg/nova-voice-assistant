@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  nova-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nova-assistant-backend:2.0.0
+    container_name: nova_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - ASSISTANT_NAME=Nova
+      - USER_NAME=Cậu
+      - ASSISTANT_PERSONA=best_friend
+      - LLM_PROVIDER=groq
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DEFAULT_MODEL=llama-3.3-70b-versatile
+      - TTS_PROVIDER=cuppy
+      - CUPPY_LOCAL_URL=http://127.0.0.1:5055/api/tts
+      - CUPPY_VOICE=cuppy
+      - EDGE_TTS_VOICE=vi-VN-HoaiMyNeural
+      - NOVA_DATA_DIR=/app/server/data
+    volumes:
+      - nova-data:/app/server/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  nova-data:
+    driver: local

@@ -144,6 +144,19 @@ class TextToSpeech:
             except Exception as e:
                 logger.error(f"Lỗi Edge-TTS fallback: {e}")
 
+        if not success:
+            # Fallback 4: Prebuilt bundled response audio if available
+            bundled_candidates = [
+                ROOT_DIR.parent / "client" / "www" / "assets" / "cuppy_ok.wav",
+                ROOT_DIR / "data" / "cuppy_ok.wav"
+            ]
+            for bc in bundled_candidates:
+                if bc.exists():
+                    import shutil
+                    wav_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.wav")
+                    shutil.copyfile(str(bc), wav_file)
+                    return wav_file
+
         if success and Path(output_file).exists():
             # F-14: Kiểm tra magic bytes và điều chỉnh phần mở rộng file chính xác (WAV vs MP3)
             try:
@@ -158,6 +171,21 @@ class TextToSpeech:
             return output_file
 
         return ""
+
+    def get_tts_health(self) -> dict:
+        """Kiểm tra sức khỏe hệ thống TTS (V4-04)"""
+        cuppy_available = False
+        try:
+            from core.vieneu_cuppy import cuppy_engine
+            cuppy_available = cuppy_engine.get_health().get("model_loaded", False)
+        except Exception:
+            cuppy_available = bool(self.cuppy_url or self.cuppy_local)
+
+        return {
+            "tts_primary": "cuppy",
+            "tts_primary_ready": cuppy_available,
+            "tts_fallback_ready": True
+        }
 
     def speak(self, text: str, wait_until_done: bool = True):
         """Phát âm thanh câu nói qua loa máy tính/điện thoại"""

@@ -5,8 +5,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR = Path(os.getenv("NOVA_DATA_DIR", str(BASE_DIR / "data")))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Phiên bản hệ thống & Handshake
+SERVER_VERSION = "2.0.0"
+MIN_CLIENT_VERSION = "2.0.0"
+NOVA_API_BASE_URL = os.getenv("NOVA_API_BASE_URL", "https://api.nova-assistant.app")
 
 # Cấu hình Cơ sở dữ liệu SQLite
 DB_PATH = DATA_DIR / "assistant.db"
@@ -24,7 +29,7 @@ DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "llama-3.3-70b-versatile")
 
 # Cấu hình Voice TTS (Cuppy / Edge-TTS / ElevenLabs)
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "cuppy")
-CUPPY_TTS_URL = os.getenv("CUPPY_TTS_URL", "https://logo-world-limousines-cups.trycloudflare.com/api/tts")
+CUPPY_TTS_URL = os.getenv("CUPPY_TTS_URL", "")
 CUPPY_LOCAL_URL = os.getenv("CUPPY_LOCAL_URL", "http://127.0.0.1:5055/api/tts")
 CUPPY_VOICE = os.getenv("CUPPY_VOICE", "cuppy")
 CUPPY_SPEED = float(os.getenv("CUPPY_SPEED", "1.0"))

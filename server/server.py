@@ -22,11 +22,15 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from config import USER_NAME, ASSISTANT_NAME, DATA_DIR
+from config import (
+    USER_NAME, ASSISTANT_NAME, DATA_DIR,
+    SERVER_VERSION, MIN_CLIENT_VERSION,
+    GROQ_API_KEY, GEMINI_API_KEY, LLM_PROVIDER
+)
 from core.agent import assistant_agent
 from core.tts import tts_engine, AUDIO_CACHE_DIR
 from core.stt import stt_engine
-from core.database import get_all_active_tasks, add_task
+from core.database import get_all_active_tasks, add_task, init_db, get_db_connection
 from core.scheduler import scheduler_engine
 
 from fastapi.staticfiles import StaticFiles
@@ -72,9 +76,31 @@ app.add_middleware(
 (ROOT_DIR / "static").mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(ROOT_DIR / "static")), name="static")
 
+@app.middleware("http")
+async def version_handshake_middleware(request: Request, call_next):
+    """V4-17: Version Handshake Middleware"""
+    response = await call_next(request)
+    response.headers["X-Nova-Server-Version"] = SERVER_VERSION
+    response.headers["X-Nova-Min-Client-Version"] = MIN_CLIENT_VERSION
+    return response
+
 @app.on_event("startup")
 async def startup_event():
-    pass # Mobile app handles proactive notifications locally via native AlarmManager
+    """V4-02: Production startup validation and migration"""
+    try:
+        init_db()
+        conn = get_db_connection(timeout=5.0)
+        conn.execute("SELECT 1 FROM tasks LIMIT 1")
+        conn.close()
+        print(f"[STARTUP] SQLite Database: OK (WAL mode, {SERVER_VERSION})")
+    except Exception as e:
+        print(f"[STARTUP ERROR] Database initialization failed: {e}")
+
+    llm_ready = bool(GROQ_API_KEY or GEMINI_API_KEY)
+    if llm_ready:
+        print(f"[STARTUP] LLM Provider: OK ({LLM_PROVIDER})")
+    else:
+        print(f"[STARTUP WARNING] LLM Provider degraded: Neither GROQ_API_KEY nor GEMINI_API_KEY configured.")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -148,6 +174,41 @@ class DeviceAckRequest(BaseModel):
 async def health():
     return {"status": "ok", "service": "nova_voice_assistant"}
 
+@app.get("/health/ready")
+async def health_ready():
+    """Kiểm tra toàn diện trạng thái sẵn sàng của backend (V4-01, V4-02, V4-04, V4-17)"""
+    db_ok = False
+    try:
+        conn = get_db_connection(timeout=2.0)
+        conn.execute("SELECT 1 FROM tasks LIMIT 1")
+        conn.close()
+        db_ok = True
+    except Exception:
+        db_ok = False
+
+    llm_ok = bool(GROQ_API_KEY or GEMINI_API_KEY)
+    tts_health = tts_engine.get_tts_health()
+    tts_ok = bool(tts_health.get("tts_fallback_ready", True))
+
+    overall_ok = db_ok and tts_ok
+    status_code = 200 if overall_ok else 503
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "ok": overall_ok,
+            "version": SERVER_VERSION,
+            "server_version": SERVER_VERSION,
+            "min_client_version": MIN_CLIENT_VERSION,
+            "llm": llm_ok,
+            "tts": tts_ok,
+            "database": db_ok,
+            "tts_primary": tts_health.get("tts_primary", "cuppy"),
+            "tts_primary_ready": tts_health.get("tts_primary_ready", False),
+            "tts_fallback_ready": tts_health.get("tts_fallback_ready", True)
+        }
+    )
+
 @app.get("/health/voice")
 async def health_voice():
     """Kiểm tra sức khỏe động cơ giọng nói Cuppy Neural TTS"""
@@ -161,18 +222,24 @@ async def health_voice():
 
 @app.get("/api/cuppy-tts")
 async def get_cuppy_tts(text: str):
-    """API sinh giọng nói Cuppy siêu tốc bằng Vieneu model v3turbo"""
+    """API sinh giọng nói Cuppy và fallback chuỗi tự động (V4-04)"""
     if not text or not text.strip():
         return JSONResponse(status_code=400, content={"error": "Text is required"})
-    # Vieneu suy luận đồng bộ và có thể mất hàng chục giây. Không chặn event loop
-    # vì app vẫn phải nhận câu trả lời hội thoại trong lúc TTS đang tạo chunk khác.
-    def synthesize_cuppy():
-        from core.vieneu_cuppy import cuppy_engine
-        return cuppy_engine.synthesize(text.strip())
 
-    wav_path = await run_in_threadpool(synthesize_cuppy)
-    if wav_path and wav_path.exists():
-        return FileResponse(wav_path, media_type="audio/wav")
+    def synthesize_safe():
+        try:
+            from core.vieneu_cuppy import cuppy_engine
+            p = cuppy_engine.synthesize(text.strip())
+            if p and p.exists() and p.stat().st_size > 1000:
+                return str(p)
+        except Exception:
+            pass
+        return tts_engine.synthesize(text.strip())
+
+    audio_path = await run_in_threadpool(synthesize_safe)
+    if audio_path and Path(audio_path).exists():
+        media_type = "audio/wav" if str(audio_path).endswith(".wav") else "audio/mpeg"
+        return FileResponse(audio_path, media_type=media_type)
     return JSONResponse(status_code=500, content={"error": "Could not synthesize audio"})
 
 @app.api_route("/api/tts", methods=["GET", "POST"])

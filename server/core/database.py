@@ -15,9 +15,18 @@ if str(ROOT_DIR) not in sys.path:
 from config import DB_PATH
 
 
+def get_db_connection(timeout: float = 30.0) -> sqlite3.Connection:
+    """Trả về kết nối SQLite an toàn với WAL mode và busy_timeout (V4-02)"""
+    conn = sqlite3.connect(DB_PATH, timeout=timeout)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    return conn
+
+
 def init_db():
     """Khởi tạo các bảng cơ sở dữ liệu nếu chưa tồn tại"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     # Bảng lưu trữ nhiệm vụ và lịch trình nhắc nhở
@@ -112,7 +121,7 @@ def add_task(title: str, scheduled_time: str, description: str = "", app_to_open
     import uuid
     if not reminder_id:
         reminder_id = str(uuid.uuid4())
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
     INSERT INTO tasks (title, description, scheduled_time, app_to_open, recurrence, reminder_id, scheduling_status)
@@ -128,7 +137,7 @@ def add_tasks_atomic(tasks_data: List[Dict[str, Any]]) -> List[int]:
     if not tasks_data:
         return []
     import uuid
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     created_ids = []
     try:
@@ -167,7 +176,7 @@ def update_task_device_ack(reminder_id: str, status: str, error: Optional[str] =
     - device_schedule_failed -> device_schedule_failed (idempotent 200 OK)
     - device_schedule_failed -> confirmed (cho phép khôi phục khi thiết bị thử lại thành công)
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
     SELECT scheduling_status FROM tasks
@@ -212,7 +221,7 @@ def update_task_device_ack(reminder_id: str, status: str, error: Optional[str] =
 
 def get_due_tasks(current_time_str: str) -> List[Dict[str, Any]]:
     """Lấy danh sách các task đến hạn cần nhắc nhở (bỏ qua các task lỗi phần cứng)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
@@ -227,7 +236,7 @@ def get_due_tasks(current_time_str: str) -> List[Dict[str, Any]]:
 
 def update_task_status(task_id: int, status: str):
     """Cập nhật trạng thái nhiệm vụ (completed, snoozed, cancelled)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE tasks SET status = ? WHERE id = ?", (status, task_id))
     conn.commit()
@@ -235,7 +244,7 @@ def update_task_status(task_id: int, status: str):
 
 def snooze_task(task_id: int, new_scheduled_time: str):
     """Hoãn nhiệm vụ sang một mốc giờ mới và tăng biến đếm hoãn"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
     UPDATE tasks 
@@ -247,7 +256,7 @@ def snooze_task(task_id: int, new_scheduled_time: str):
 
 def log_interaction(task_id: Optional[int], user_response: str, ai_reply: str, action_taken: str):
     """Lưu lại lịch sử đối thoại giữa người dùng và trợ lý"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
     INSERT INTO interaction_logs (task_id, user_response, ai_reply, action_taken)
@@ -258,7 +267,7 @@ def log_interaction(task_id: Optional[int], user_response: str, ai_reply: str, a
 
 def get_all_active_tasks() -> List[Dict[str, Any]]:
     """Lấy toàn bộ các task đang chờ hoặc bị hoãn (bỏ qua task lỗi phần cứng)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM tasks WHERE status IN ('pending', 'snoozed') AND (scheduling_status IS NULL OR scheduling_status != 'device_schedule_failed') ORDER BY scheduled_time ASC")
@@ -271,7 +280,7 @@ def get_task_by_reminder_id(reminder_id: str) -> Optional[Dict[str, Any]]:
     """Tìm một task theo canonical reminder_id hoặc numeric ID"""
     if not reminder_id:
         return None
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM tasks WHERE reminder_id = ? OR CAST(id AS TEXT) = ?", (reminder_id, reminder_id))
@@ -310,7 +319,7 @@ def claim_turn(session_id: str, turn_id: str, request_hash: str, lease_seconds: 
     - Thử lại sau khi thất bại: chuyển trạng thái failed -> processing bằng atomic compare-and-swap.
     - Hết hạn lease (backend crash): atomic reclaim phiên xử lý bị kẹt.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -373,7 +382,7 @@ def claim_turn(session_id: str, turn_id: str, request_hash: str, lease_seconds: 
 
 def complete_turn(session_id: str, turn_id: str, response_data: Dict[str, Any]):
     """Ghi nhận lượt đã hoàn tất kèm response chuẩn hóa để replay khi retry (Stage 7)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
     UPDATE processed_turns
@@ -385,7 +394,7 @@ def complete_turn(session_id: str, turn_id: str, response_data: Dict[str, Any]):
 
 def fail_turn(session_id: str, turn_id: str):
     """Đánh dấu lượt thất bại để cho phép thử lại nếu cần"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
     UPDATE processed_turns

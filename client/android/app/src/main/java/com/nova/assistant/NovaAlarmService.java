@@ -85,6 +85,18 @@ public class NovaAlarmService extends Service {
         return false;
     }
 
+    /**
+     * V4-11: Kiểm tra quyền USE_FULL_SCREEN_INTENT trên Android 14+ (API 34)
+     */
+    public static boolean canUseFullScreenIntent(Context context) {
+        if (context == null) return false;
+        if (Build.VERSION.SDK_INT >= 34) {
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            return nm != null && nm.canUseFullScreenIntent();
+        }
+        return true;
+    }
+
     @Override
     public IBinder onBind(Intent intent) {
         return null;
@@ -231,10 +243,26 @@ public class NovaAlarmService extends Service {
             .setAutoCancel(true)
             .setOngoing(true)
             .setSilent(true)
-            .setVibrate(new long[]{0, 400, 200, 400, 200, 600})
-            .setContentIntent(openPendingIntent)
-            .setFullScreenIntent(openPendingIntent, true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Tắt chuông", stopPendingIntent)
+            .setVibrate(new long[]{0, 400, 200, 400, 200, 600});
+        builder.setContentIntent(openPendingIntent);
+
+        if (canUseFullScreenIntent(this)) {
+            builder.setFullScreenIntent(openPendingIntent, true);
+        } else {
+            try {
+                Intent settingsIntent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
+                settingsIntent.setData(Uri.parse("package:" + getPackageName()));
+                PendingIntent settingsPending = PendingIntent.getActivity(
+                    this,
+                    taskId + 3,
+                    settingsIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0)
+                );
+                builder.addAction(android.R.drawable.ic_menu_preferences, "Cài đặt Full-screen", settingsPending);
+            } catch (Exception ignored) {}
+        }
+
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Tắt chuông", stopPendingIntent)
             .addAction(android.R.drawable.ic_lock_idle_alarm, "Báo lại 5p", snoozePendingIntent)
             .addAction(android.R.drawable.ic_btn_speak_now, "Trò chuyện", openPendingIntent);
 

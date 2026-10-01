@@ -9,7 +9,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#090d16">
   <link rel="icon" href="https://api.iconify.design/fluent-emoji:sparkles.svg">
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="assets/tailwind.min.css">
+  <script src="assets/tailwind.cdn.js"></script>
   <style>
     @keyframes pulse-glow {
       0%, 100% { transform: scale(1); filter: drop-shadow(0 0 25px rgba(99, 102, 241, 0.6)); }
@@ -37,6 +38,7 @@
     .wave-active .w-bar:nth-child(4) { animation: wave-bar 0.7s infinite 0.15s; }
     .wave-active .w-bar:nth-child(5) { animation: wave-bar 0.7s infinite 0.25s; }
   </style>
+  <script src="js/config/AppConfig.js"></script>
   <script src="js/voice/prebuiltAudioMap.js"></script>
   <script src="js/reminders/ReminderId.js"></script>
   <script src="js/reminders/ReminderDeliveryPolicy.js"></script>
@@ -45,6 +47,7 @@
   <script src="js/conversation/AudioRequestRegistry.js"></script>
   <script src="js/reminders/ReminderClient.js"></script>
   <script src="js/diagnostics/DiagnosticsPanel.js"></script>
+  <script src="js/onboarding/FirstRunWizard.js"></script>
 </head>
 <body class="bg-[#090d16] text-white font-sans antialiased min-h-screen flex flex-col justify-between p-4 select-none">
 
@@ -314,18 +317,12 @@
     // CẤU HÌNH AN TOÀN TRÊN THIẾT BỊ (F-01, F-11, F-13)
     // ==========================================
     // Khóa Gemini không lưu cứng trong APK client; lấy từ cấu hình người dùng hoặc gọi backend
-    let GEMINI_API_KEY = localStorage.getItem("nova_user_gemini_key") || "";
-    const GEMINI_MODEL = localStorage.getItem("nova_gemini_model") || "gemini-flash-lite-latest";
-
-    const DEFAULT_TUNNEL_URL = "https://cattle-end-rivers-sisters.trycloudflare.com";
-    const DEFAULT_LOCAL_URL = "http://192.168.100.48:8000";
-
+    // V4-03 & V4-16: Cấu hình thống nhất từ AppConfig
     function getApiBaseUrl() {
-      const saved = localStorage.getItem("nova_backend_url");
-      if (saved && saved.trim()) return saved.trim().replace(/\/+$/, "");
-      // Quick Tunnel có hostname thay đổi khi khởi động lại; dùng máy chủ LAN đang cấu hình
-      // làm mặc định, còn tunnel chỉ dùng khi người dùng nhập URL đang hoạt động.
-      return DEFAULT_LOCAL_URL;
+      if (typeof AppConfig !== 'undefined' && AppConfig.getApiBaseUrl) {
+        return AppConfig.getApiBaseUrl();
+      }
+      return "https://api.nova-assistant.app";
     }
 
     // Khởi tạo các Controller chuẩn hóa độ tin cậy và correlation ID (P0 / P1)
@@ -375,6 +372,7 @@
           req.cancelled = true;
         }
         activeAudioRequests.clear();
+      }
       if (window._currentAudioTimeoutId) {
         clearTimeout(window._currentAudioTimeoutId);
         window._currentAudioTimeoutId = null;
@@ -1632,7 +1630,8 @@
 
     async function callBackendDialogue(userText) {
       const primaryUrl = getApiBaseUrl();
-      const candidates = [...new Set([primaryUrl, DEFAULT_LOCAL_URL, DEFAULT_TUNNEL_URL, "http://10.0.2.2:8000"].filter(Boolean))];
+      const isDev = (typeof AppConfig !== 'undefined' && AppConfig.environment === 'development');
+      const candidates = [...new Set([primaryUrl, isDev ? "http://10.0.2.2:8000" : null].filter(Boolean))];
 
       let lastError = null;
       for (const baseUrl of candidates) {
@@ -1659,7 +1658,11 @@
             timeoutId = setTimeout(() => controller.abort(), 18000);
             res = await fetch(`${baseUrl}/api/dialogue`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                "X-Nova-Client-Version": (typeof AppConfig !== 'undefined' ? AppConfig.appVersion : "2.0.0"),
+                "X-Nova-Build-SHA": (typeof AppConfig !== 'undefined' ? AppConfig.buildSha : "v2.0.0")
+              },
               body: reqPayload,
               signal: controller.signal
             });
@@ -1710,209 +1713,9 @@
     // =========================================================================
     // 4. GỌI GOOGLE GEMINI TỐC ĐỘ CAO (FAST FIRST-TOKEN INFERENCE)
     // =========================================================================
+    // V4-03: Tuyệt đối không để API key trong client. Luồng duy nhất qua Nova Backend
     async function callGeminiDirect(userText) {
-      // F-01: Nếu client không cấu hình key riêng, gọi an toàn qua Backend Dialogue API (bảo mật tuyệt đối API key)
-      if (!GEMINI_API_KEY) {
-        return await callBackendDialogue(userText);
-      }
-
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-      conversationHistory.push({
-        role: "user",
-        parts: [{ text: userText }]
-      });
-      if (conversationHistory.length > 24) {
-        conversationHistory = conversationHistory.slice(-24);
-      }
-      while (conversationHistory.length > 0 && conversationHistory[0].role !== "user") {
-        conversationHistory.shift();
-      }
-      saveConversation();
-
-      const nowStr = new Date().toLocaleString("vi-VN");
-      const systemInstruction = `Bạn là Nova, trợ lý ảo giọng nói tiếng Việt thân thiện, thông minh, ấm áp và có trí nhớ tuyệt vời.
-Thời điểm hiện tại: ${nowStr}.
-Xưng hô: 'tớ - cậu'.
-QUY TẮC PHẢN HỒI:
-1. KHI NGƯỜI DÙNG YÊU CẦU KỂ CHUYỆN HOẶC KỂ LẠI CÂU CHUYỆN ĐÃ CHIA SẺ:
-- Hãy nhập vai người bạn kể chuyện tài ba, truyền cảm và sinh động! Kể câu chuyện hoàn chỉnh, có mở đầu, diễn biến tình tiết cuốn hút và cái kết trọn vẹn (khoảng 150 - 300 từ).
-- TUYỆT ĐỐI KHÔNG né tránh, không trả lời khơi khơi cụt lủn, không hỏi ngược lại mà hãy lập tức kể câu chuyện thật hay cho bạn của mình.
-- ĐẶC BIỆT KHI NGƯỜI DÙNG NÓI 'kể lại câu chuyện tớ vừa dặn/kể' hoặc 'kể lại chuyện lúc nãy': Hãy tìm kỹ trong toàn bộ lịch sử trò chuyện phía trên xem người dùng đã chia sẻ câu chuyện gì, và thuật lại một cách tỉ mỉ, đầy đủ và trân trọng. Nếu trong lịch sử chưa có câu chuyện nào người dùng kể, hãy dịu dàng thông báo: 'Tớ nhớ là trước đó cậu chưa kể chi tiết câu chuyện đó cho tớ nè! Cậu kể cho tớ nghe đi, tớ đang rất chăm chú lắng nghe đây!'
-2. VỚI CÂU HỎI THÔNG THƯỜNG / HỎI ĐÁP / TÂM SỰ: Trả lời thông minh, tự nhiên, đi thẳng vào trọng tâm, ấm áp như ChatGPT Voice và Gemini Live.
-3. TUYỆT ĐỐI KHÔNG DÙNG ký tự Markdown (*, #, gạch đầu dòng, bảng biểu), KHÔNG dùng emoji để bộ máy phát âm giọng nói đọc trơn tru không vấp.
-4. PHÂN BIỆT RÕ HỎI ĐÁP VÀ RA LỆNH:
-- Tuyệt đối không gọi function launch_app nếu người dùng chỉ hỏi kiến thức/hỏi thăm hoặc yêu cầu kể chuyện.
-- CHỈ GỌI function 'launch_app' khi người dùng THỰC SỰ RA LỆNH mở ứng dụng hoặc yêu cầu nghe nhạc/tìm video/chỉ đường (ví dụ: 'mở youtube', 'bật nhạc sơn tùng', 'chỉ đường đến hồ gươm', 'mở zalo').
-- CHỈ GỌI function 'schedule_tasks' khi người dùng yêu cầu hẹn giờ, nhắc nhở hoặc chốt lịch trình công việc.`;
-
-      const tools = [{
-        function_declarations: [
-          {
-            name: "schedule_tasks",
-            description: "Lên lịch các nhiệm vụ nhắc nhở cho người dùng khi người dùng yêu cầu hoặc đã chốt lịch trình",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                tasks: {
-                  type: "ARRAY",
-                  description: "Danh sách công việc cần lên lịch",
-                  items: {
-                    type: "OBJECT",
-                    properties: {
-                      title: { type: "STRING", description: "Tên công việc cần làm" },
-                      scheduled_time: { type: "STRING", description: "Giờ hẹn (vd: '14:30', '18h', '+15m')" },
-                      app_to_open: { type: "STRING", description: "Tên ứng dụng mở kèm nếu có" }
-                    },
-                    required: ["title", "scheduled_time"]
-                  }
-                }
-              },
-              required: ["tasks"]
-            }
-          },
-          {
-            name: "launch_app",
-            description: "Mở ứng dụng hoặc tìm kiếm sâu nội dung trong ứng dụng trên điện thoại (vd: mở bài hát hoặc video trên YouTube, mở Google Maps chỉ đường, mở Camera, Zalo, Facebook, TikTok, v.v.)",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                app_name: {
-                  type: "STRING",
-                  description: "Tên ứng dụng cần mở (vd: 'youtube', 'maps', 'camera', 'zalo', 'facebook', 'tiktok', 'chrome', 'báo thức')"
-                },
-                query: {
-                  type: "STRING",
-                  description: "Nội dung tìm kiếm cụ thể: tên bài hát, video, địa điểm, từ khóa nếu người dùng yêu cầu (vd: 'Nơi này có anh', 'Hồ Hoàn Kiếm')"
-                }
-              },
-              required: ["app_name"]
-            }
-          }
-        ]
-      }];
-
-      const payload = {
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        contents: conversationHistory,
-        tools: tools,
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1024
-        }
-      };
-
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        const error = new Error(`Gemini HTTP Error: ${res.status}`);
-        error.code = res.status === 404 ? "model_unavailable" :
-          (res.status === 401 || res.status === 403 ? "api_key_invalid" :
-          (res.status === 429 ? "quota_exceeded" : "server_error"));
-        throw error;
-      }
-
-      const data = await res.json();
-      const candidate = data.candidates && data.candidates[0];
-      if (!candidate) throw new Error("Không có phản hồi từ Gemini");
-
-      let replyText = "";
-      let actionResult = { action: "chat" };
-
-      const parts = candidate.content.parts || [];
-      for (const part of parts) {
-        // Kiểm tra Tool Calling launch_app (Mở ứng dụng & tìm kiếm sâu)
-        if (part.functionCall && part.functionCall.name === "launch_app") {
-          const args = part.functionCall.args || {};
-          const appName = args.app_name || "";
-          const query = args.query || "";
-          let opened = false;
-          if (window.AndroidNova && window.AndroidNova.openApp) {
-            opened = window.AndroidNova.openApp(appName, query);
-          }
-
-          if (opened) {
-            if (query) {
-              replyText = `Dạ được ngay! Tớ đang mở ${appName} và tìm "${query}" cho cậu đây!`;
-            } else {
-              replyText = `Okela! Đang mở ứng dụng ${appName} cho cậu ngay đây!`;
-            }
-          } else {
-            replyText = `Tớ chưa tìm thấy ứng dụng ${appName} trên máy của cậu. Cậu kiểm tra lại xem đã cài đặt chưa nhé!`;
-          }
-          actionResult = { action: "launch_app", app_name: appName, query: query, success: opened };
-          break;
-        }
-
-        // Kiểm tra Tool Calling schedule_tasks (Lên lịch trình)
-        if (part.functionCall && part.functionCall.name === "schedule_tasks") {
-          const rawTasks = part.functionCall.args.tasks || [];
-          const structuredTasks = [];
-          const summaries = [];
-          for (const t of rawTasks) {
-            const timeStr = parseNaturalTime(t.scheduled_time);
-            if (timeStr) {
-              const parts = timeStr.split(" ");
-              const dateParts = parts[0].split("-");
-              const timeParts = parts[1].split(":");
-              const targetDate = new Date(
-                parseInt(dateParts[0]),
-                parseInt(dateParts[1]) - 1,
-                parseInt(dateParts[2]),
-                parseInt(timeParts[0]),
-                parseInt(timeParts[1]),
-                0
-              );
-              const epochMs = targetDate.getTime();
-              const canonicalId = (window.ReminderId && typeof window.ReminderId.generateReminderId === 'function') ?
-                window.ReminderId.generateReminderId() :
-                ("rem_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 9));
-
-              structuredTasks.push({
-                reminder_id: canonicalId,
-                title: t.title || "Lịch hẹn",
-                scheduled_time: timeStr,
-                scheduled_at_epoch_ms: epochMs,
-                timezone: "Asia/Ho_Chi_Minh",
-                app_to_open: t.app_to_open || ""
-              });
-              const displayTime = timeStr.split(" ").pop();
-              summaries.push(`${t.title || "Lịch hẹn"} lúc ${displayTime}`);
-            }
-          }
-          actionResult = {
-            type: "schedule_tasks",
-            action: "schedule_tasks",
-            tasks: structuredTasks,
-            summary: summaries
-          };
-          if (structuredTasks.length > 0) {
-            replyText = `Tớ đang lên lịch hẹn: ${summaries.join(", ")}...`;
-          } else {
-            replyText = "Tớ chưa nghe rõ mốc thời gian cậu muốn hẹn. Cậu có thể nói rõ giờ giúp tớ được không, ví dụ như 8 giờ sáng hoặc 15 phút nữa nhé!";
-          }
-          break;
-        }
-
-        if (part.text) {
-          replyText += part.text;
-        }
-      }
-
-      replyText = replyText.replace(/[*#]/g, "").trim();
-      if (!replyText) replyText = "Tớ nghe rồi nè! Cậu cần tớ hỗ trợ gì tiếp không?";
-
-      conversationHistory.push({
-        role: "model",
-        parts: [{ text: replyText }]
-      });
-      saveConversation();
-
-      return { reply: replyText, action: actionResult };
+      return await callBackendDialogue(userText);
     }
 
     // 4. BỘ PHÂN TÍCH THỜI GIAN & QUẢN LÝ LỊCH TRÌNH LOCAL (F-12)
@@ -2411,7 +2214,11 @@ QUY TẮC PHẢN HỒI:
         }, true /* isAiResponse = true */, revealAiText);
       } catch (err) {
         console.error("Lỗi:", err);
-        const errText = err.code === "model_unavailable" ?
+        const isOffline = (typeof navigator !== 'undefined' && !navigator.onLine) ||
+          (err && err.message && (err.message.includes("Failed to fetch") || err.message.includes("NetworkError") || err.message.includes("network")));
+        const errText = isOffline ?
+          "Nova hiện chưa kết nối được máy chủ. Các lệnh mở ứng dụng và chuông trên máy vẫn hoạt động bình thường!" :
+          err.code === "model_unavailable" ?
           "Mô hình AI hiện không khả dụng. Cậu kiểm tra cấu hình máy chủ giúp tớ nhé!" :
           err.code === "api_key_invalid" || err.code === "missing_api_key" ?
           "Nova chưa xác thực được với dịch vụ AI. Cậu kiểm tra khóa trên máy chủ nhé!" :
@@ -2423,6 +2230,7 @@ QUY TẮC PHẢN HỒI:
         document.getElementById("novaBubble").innerText = `"${errText}"`;
         speakNovaResponse(errText, () => {
           isProcessingUtterance = false;
+          if (turnController) turnController.finishTurn(turnController.activeTurnId);
           if (inConversationMode) {
             document.getElementById("statusLabel").innerText = "Đang lắng nghe cậu nói tiếp...";
             setTimeout(() => {
@@ -2941,6 +2749,15 @@ QUY TẮC PHẢN HỒI:
     // Khởi tạo hiển thị task & nút Giữ để nói
     updateTaskListUI();
     setupPushToTalk();
+
+    // V4-05: Khởi tạo quy trình cài đặt lần đầu (First Run Wizard) nếu mở app lần đầu
+    if (typeof FirstRunWizard !== 'undefined') {
+      try {
+        new FirstRunWizard().init();
+      } catch (e) {
+        console.warn("[Onboarding] FirstRunWizard error:", e);
+      }
+    }
   </script>
 </body>
 </html>

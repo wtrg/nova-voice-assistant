@@ -18,6 +18,10 @@ jobs:
       with:
         node-version: 22
 
+    - name: Install client dependencies
+      working-directory: client
+      run: npm ci
+
     - name: Run Client State Machine & Parity Test Suite
       working-directory: client
       run: |

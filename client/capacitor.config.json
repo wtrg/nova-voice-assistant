@@ -3,7 +3,7 @@
   "appName": "Nova AI",
   "webDir": "www",
   "server": {
-    "cleartext": true,
-    "allowNavigation": ["localhost", "*.trycloudflare.com"]
+    "cleartext": false,
+    "allowNavigation": ["localhost", "10.0.2.2", "api.nova-assistant.app"]
   }
 }

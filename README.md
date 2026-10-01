@@ -1,31 +1,104 @@
-# 🔮 Nova Assistant — Trợ Lý Ảo Đàm Thoại AI Tiếng Việt Thông Minh
+# 🔮 Nova Assistant — Trợ Lý Ảo Đàm Thoại AI Tiếng Việt Thông Minh (v2.0.0)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Web%20%7C%20FastAPI-green.svg)](https://github.com/wtrg/nova-voice-assistant)
 [![TTS Engine](https://img.shields.io/badge/TTS-Vieneu%20Cuppy%20v3turbo-purple.svg)](https://github.com/wtrg/nova-voice-assistant)
-[![Tests](https://img.shields.io/badge/Tests-26%2F26%20Passed-brightgreen.svg)](https://github.com/wtrg/nova-voice-assistant)
+[![Client Tests](https://img.shields.io/badge/Client%20CI-Passing-brightgreen.svg)](https://github.com/wtrg/nova-voice-assistant/actions)
+[![Backend Tests](https://img.shields.io/badge/Backend%20CI-25%2F25%20Passing-brightgreen.svg)](https://github.com/wtrg/nova-voice-assistant/actions)
+[![Android CI](https://img.shields.io/badge/Android%20CI-Passing-brightgreen.svg)](https://github.com/wtrg/nova-voice-assistant/actions)
 
-**Nova Assistant** là hệ thống trợ lý ảo đàm thoại hai chiều thời gian thực (Full-Duplex Voice Assistant) thuần tiếng Việt, kết hợp giữa ứng dụng di động Android gốc, Web View tương tác hiện đại và máy chủ não bộ AI đa tầng với giọng đọc Saydi Cuppy độc quyền.
+**Nova Assistant** là hệ thống trợ lý ảo đàm thoại hai chiều thời gian thực (Full-Duplex Voice Assistant) thuần tiếng Việt, kết hợp giữa ứng dụng di động Android gốc, Web View tương tác hiện đại và máy chủ AI đa tầng với giọng đọc Cuppy độc quyền.
 
 ---
 
-## 🌟 Điểm Nổi Bật (Key Features)
+## ⚡ Hướng Dẫn Cài Đặt Nhanh (Quick Start)
 
-- 🎙️ **Đàm Thoại Tự Nhiên & Ngắt Nhịp 2.2s**:
-  - Tự động phát hiện khoảng dừng nói (silence detection) trong đúng **2.2 giây** để gửi truy vấn, mang lại trải nghiệm trò chuyện mượt mà như người thật.
-  - 100% In-App Speech Recognition: Loại bỏ hoàn toàn các cửa sổ popup Google Voice gây gián đoạn.
-- 🔊 **Giọng Nói Cuppy Độc Quyền (Vieneu v3turbo)**:
-  - Tích hợp giọng nữ Cuppy biểu cảm tự nhiên, nhí nhảnh.
-  - Tối ưu tốc độ phát 1.10x (`PlaybackParams.setSpeed(1.10f)` & Web Audio `1.10x`) giúp phản hồi nhanh nhẹn, gãy gọn mà không méo tiếng.
-  - Pipeline Prefetch: Chia nhỏ câu đầu tiên (<65 ký tự) để cất tiếng tức thì (<200ms) trong khi tiếp tục sinh các câu sau ở chế độ nền.
-- 📱 **Điều Khiển Thiết Bị Android Đa Nhiệm**:
-  - Mở ứng dụng và kích hoạt chức năng hệ thống bằng giọng nói: YouTube (tìm kiếm bài hát), Bản đồ Google Maps (dẫn đường), Camera, Báo thức, Zalo, Facebook, TikTok.
-  - Cài đặt Trợ lý mặc định hệ điều hành & Background/Screen-off Hotword: `[DEVICE TEST REQUIRED]` *(Yêu cầu thiết bị phần cứng thực tế và OEM ROM service; chưa đánh dấu hoàn tất trong V3 do giới hạn môi trường headless CI/CD & Android background recognition).*
-- 🧠 **Bộ Não AI Đa Tầng (Multi-LLM Engine)**:
-  - Hỗ trợ linh hoạt **Google Gemini 2.5 Flash** và **Groq LLaMA 3.3 70B**.
-  - Tự động nhận diện ý định (Intent Routing), ghi nhớ ngữ cảnh và phân biệt chính xác câu lệnh điều khiển thiết bị so với trò chuyện tự do.
-- 🛡️ **Dự Phòng Offline & Mạng Kém**:
-  - Tích hợp sẵn gói âm thanh gốc phòng thu trong APK cho các câu lệnh hệ thống cốt lõi (0ms latency, không phụ thuộc mạng).
+### 👤 Dành Cho Người Dùng Thông Thường (Normal User)
+Cài đặt và sử dụng ngay trong **6 bước đơn giản** — không cần cài đặt Python, Node.js hay cấu hình máy chủ:
+
+1. **Tải bộ cài đặt**: Tải file `Nova_Assistant.apk` mới nhất từ mục [Releases](https://github.com/wtrg/nova-voice-assistant/releases).
+2. **Cài đặt APK**: Mở file `.apk` trên điện thoại Android của bạn và chọn **Cài đặt** (Cho phép cài ứng dụng từ nguồn không xác định nếu được hỏi).
+3. **Mở Nova**: Nhấn vào biểu tượng Nova trên màn hình chính. Trình hướng dẫn khởi chạy lần đầu (First-Run Wizard) sẽ tự động xuất hiện.
+4. **Cấp quyền cần thiết**: Cấp quyền **Microphone** (để nói chuyện) và quyền **Thông báo / Báo thức chính xác** (để đặt lịch nhắc nhở).
+5. **(Tùy chọn) Đặt làm Trợ lý Mặc định**: Chọn Nova làm Default Assistant trong cài đặt hệ thống để gọi trợ lý bằng cử chỉ vuốt góc hoặc giữ nút nguồn.
+6. **Sẵn sàng sử dụng**: Trò chuyện ngay với Nova bằng cách chạm vào quả cầu AI hoặc nói các câu lệnh như *"Nhắc tớ 10 phút nữa uống nước"*, *"Mở YouTube bài Nắng Ấm Xa Dần"*.
+
+---
+
+### 💻 Dành Cho Lập Trình Viên & Triển Khai Máy Chủ (Developer & Self-Hosting)
+
+#### 1. Triển Khai Backend với Docker (Khuyến Nghị)
+```bash
+# Clone repository
+git clone https://github.com/wtrg/nova-voice-assistant.git
+cd nova-voice-assistant
+
+# Thiết lập biến môi trường
+cp server/.env.example server/.env
+# Thêm GEMINI_API_KEY hoặc GROQ_API_KEY vào server/.env
+
+# Khởi chạy bằng Docker Compose
+docker compose up -d --build
+```
+Máy chủ sẽ tự động chạy tại cổng `8000` với SQLite WAL volume bền vững tại `./server/data`. Kiểm tra trạng thái: `GET http://localhost:8000/health/ready`.
+
+#### 2. Chạy Backend Thủ Công (Python FastAPI)
+Yêu cầu Python 3.11+ và FFmpeg:
+```bash
+cd server
+python -m venv venv
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+pip install -r requirements.txt -r requirements-dev.txt
+uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### 3. Chạy Kiểm Thử Backend (Pytest)
+```bash
+python -m pytest server/tests -v
+```
+
+#### 4. Biên Dịch & Kiểm Thử Client (Android / Web)
+Yêu cầu Node.js 22+, JDK 21 và Android SDK 34+:
+```bash
+cd client
+npm ci
+
+# Chạy toàn bộ test suites của client (Cú pháp, Turn State Machine, Reminder Contract, Voice Mapping):
+npm test
+
+# Đồng bộ tài nguyên Web sang Android:
+npx cap sync android
+
+# Kiểm thử & Biên dịch Android:
+cd android
+./gradlew testDebugUnitTest
+./gradlew assembleDebug
+```
+File APK sau khi biên dịch nằm tại: `client/android/app/build/outputs/apk/debug/app-debug.apk`.
+
+---
+
+## 🌟 Điểm Nổi Bật (Key Features & Invariants)
+
+- 🎙️ **Đàm Thoại Tự Nhiên & In-App STT**:
+  - Tự động phát hiện khoảng dừng nói (silence detection) trong 2.2 giây, không popup gián đoạn.
+  - Phối hợp quyền sở hữu âm thanh (AudioOwnershipCoordinator) bảo đảm STT, Hotword và TTS không bao giờ tranh chấp micro.
+- 🔊 **Giọng Nói Cuppy Đa Tầng Fallback**:
+  - Chuỗi dự phòng 4 cấp độ: Vieneu Cuppy Local $\to$ Remote Cuppy Service $\to$ Edge-TTS $\to$ Âm thanh phòng thu nạp sẵn offline.
+  - 100% không bao giờ kẹt trạng thái `SPEAKING` khi mạng gián đoạn.
+- ⏰ **Nhắc Nhở & Báo Thức Tin Cậy (Zero Divergence)**:
+  - Báo thức Android AlarmManager là căn cứ thực thi duy nhất trên di động (`1 reminder = 1 canonical ID = 1 AlarmManager = 1 ACK = 1 delivery`).
+  - Hỗ trợ lưu trữ bền vững, sống sót qua khởi động lại máy (Reboot Receiver) và khôi phục hàng đợi outbox ACK khi mất mạng.
+- 📱 **Hỗ Trợ Trợ Lý Mặc Định Hệ Thống (Default Assistant)**:
+  - Tích hợp chuẩn `VoiceInteractionService` của Android, mở trợ lý qua thao tác giữ nút nguồn hoặc cử chỉ hệ điều hành.
+  - Hỗ trợ Background Wake-Word ("Hey Nova") chạy hoàn toàn offline trên thiết bị (Mặc định TẮT, người dùng có thể bật trong Cài đặt).
+- 🛡️ **Bảo Mật & Hoạt Động Offline**:
+  - 100% tài nguyên giao diện (CSS, JS, Font) được đóng gói offline trong APK — hoạt động ngay cả ở chế độ máy bay.
+  - Loại bỏ hoàn toàn API key khỏi ứng dụng client; mọi giao tiếp đi qua HTTPS backend với cơ chế kiểm tra phiên bản (Version Handshake).
 
 ---
 
@@ -36,139 +109,70 @@ graph TD
     User([👤 Người Dùng]) -->|Giọng nói vi-VN| ClientApp[📱 Nova Android Client]
     
     subgraph Client [Tầng Khách - Client App]
-        ClientApp --> NativeSTT[Native SpeechRecognizer / Web Speech]
-        NativeSTT -->|Ngắt nhịp 2.2s| Router[Intent Router & Fast Command Engine]
-        ClientApp --> NativePlayer[Hardware MediaPlayer / HTML5 Audio 1.10x]
+        ClientApp --> AudioCoord[Audio Ownership Coordinator]
+        AudioCoord --> NativeSTT[Speech Recognition / Web Speech]
+        AudioCoord --> Hotword[Hey Nova Detector (Offline)]
+        NativeSTT --> TurnController[Turn State Machine]
+        TurnController --> NativeBridge[Capacitor Native Bridge]
     end
 
-    Router -->|Lệnh hệ thống| OSControl[⚡ Deep Links: YouTube / Maps / Camera / Zalo]
-    Router -->|Đàm thoại / Hỏi đáp| APIGateway[🌐 Backend Server FastAPI]
+    NativeBridge -->|Lệnh mở App / Báo thức| NativeAlarm[AlarmManager & Deep Links]
+    NativeBridge -->|HTTP API / Handshake| Backend[🌐 Production Backend FastAPI]
 
-    subgraph Backend [Tầng Máy Chủ - Server]
-        APIGateway --> Agent[🧠 Multi-LLM Agent: Gemini / Groq]
-        Agent --> TTSPipeline[🔊 Cuppy Neural TTS: Vieneu v3turbo]
-        TTSPipeline --> AudioCache[(Bộ Nhớ Đệm Âm Thanh)]
+    subgraph Server [Tầng Máy Chủ - Server]
+        Backend --> Agent[🧠 Multi-LLM Agent: Gemini / Groq]
+        Backend --> ReminderDB[(SQLite WAL Database)]
+        Agent --> TTSFallback[🔊 Multi-Tier TTS Fallback Pipeline]
+        TTSFallback -->|Cuppy / Edge-TTS / Prebuilt| ClientPlayer[Hardware MediaPlayer]
     end
-
-    AudioCache -->|Stream Audio / Prefetch Chunks| NativePlayer
 ```
 
 ---
 
-## 📂 Cấu Trúc Mã Nguồn (Directory Structure)
+## 📁 Cấu Trúc Mã Nguồn (Directory Structure)
 
 ```text
 nova-voice-assistant/
 ├── client/                     # Ứng dụng Android & Web UI (Capacitor)
 │   ├── android/                # Mã nguồn Android Studio gốc (Java / Gradle)
 │   │   └── app/src/main/
-│   │       ├── java/com/nova/assistant/MainActivity.java  # Native Bridge
+│   │       ├── java/com/nova/assistant/
+│   │       │   ├── MainActivity.java
+│   │       │   ├── AudioOwnershipCoordinator.java
+│   │       │   ├── NovaAlarmReceiver.java
+│   │       │   ├── NovaAlarmService.java
+│   │       │   ├── NovaBootReceiver.java
+│   │       │   ├── NovaHotwordService.java
+│   │       │   └── NovaVoiceInteractionService.java
 │   │       └── AndroidManifest.xml
-│   ├── www/                    # Giao diện điều khiển Web (TailwindCSS, HTML5)
+│   ├── www/                    # Giao diện điều khiển Web (Offline Assets, Tailwind)
 │   │   ├── index.html          # Logic đàm thoại, Orb animation, Audio Pipeline
-│   │   └── assets/             # Âm thanh phòng thu Cuppy gốc cho offline
-│   ├── capacitor.config.json   # Cấu hình Capacitor Bridge
-│   ├── package.json            # Cấu hình NPM và kịch bản test
-│   └── test_router.py          # Bộ test 26 ca kiểm thử Intent Routing
+│   │   ├── js/
+│   │   │   ├── config/AppConfig.js
+│   │   │   ├── onboarding/FirstRunWizard.js
+│   │   │   ├── reminders/ReminderClient.js
+│   │   │   ├── turn/TurnController.js
+│   │   │   └── diagnostics/DiagnosticsPanel.js
+│   │   └── assets/             # CSS cục bộ & âm thanh phòng thu Cuppy
+│   └── tests/                  # Bộ test tự động của Client (Node.js/Acorn)
 ├── server/                     # Máy chủ AI & Neural TTS (Python FastAPI)
 │   ├── core/
-│   │   ├── agent.py            # Quản lý LLM (Gemini / Groq) và prompt
-│   │   ├── vieneu_cuppy.py     # Engine tổng hợp giọng nói Cuppy Neural TTS
-│   │   ├── os_control.py       # Lệnh điều khiển hệ điều hành
-│   │   ├── stt.py              # Xử lý nhận dạng giọng nói backend
-│   │   ├── tts.py              # Đa luồng Text-To-Speech fallback
+│   │   ├── agent.py            # Quản lý LLM (Gemini / Groq)
+│   │   ├── database.py         # Kết nối SQLite với chế độ WAL & busy timeout
+│   │   ├── vieneu_cuppy.py     # Engine tổng hợp Cuppy Neural TTS
+│   │   ├── tts.py              # Đa luồng Fallback TTS
 │   │   └── scheduler.py        # Quản lý nhắc việc & lịch hẹn
-│   ├── server.py               # FastAPI endpoints (/api/chat, /api/cuppy-tts)
-│   ├── config.py               # Quản lý cấu hình & biến môi trường
-│   ├── requirements.txt        # Danh sách thư viện Python
-│   └── .env.example            # Bản mẫu cấu hình biến môi trường
-├── .gitignore
-├── LICENSE                     # Giấy phép mã nguồn mở MIT
+│   ├── tests/                  # Bộ test hợp đồng API, Idempotency & Timezone
+│   ├── server.py               # FastAPI endpoints & Middleware
+│   └── config.py               # Cấu hình biến môi trường
+├── .github/workflows/          # CI/CD Workflows (Client, Backend, Android, Release)
+├── Dockerfile                  # Container production hóa cho Backend
+├── docker-compose.yml          # Triển khai production với volume bền vững
 └── README.md
 ```
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt & Chạy Thử (Quick Start)
-
-### 1. Khởi Chạy Backend Server (Python)
-
-#### Yêu cầu:
-- Python 3.10+
-- FFmpeg (khuyến nghị cho xử lý âm thanh)
-
-```bash
-# 1. Đi vào thư mục server
-cd server
-
-# 2. Tạo môi trường ảo và kích hoạt
-python -m venv venv
-# Trên Windows:
-venv\Scripts\activate
-# Trên Linux/macOS:
-source venv/bin/activate
-
-# 3. Cài đặt các thư viện phụ thuộc
-pip install -r requirements.txt
-
-# 4. Thiết lập biến môi trường
-cp .env.example .env
-# Mở file .env và điền GEMINI_API_KEY hoặc GROQ_API_KEY của bạn
-
-# 5. Khởi động máy chủ FastAPI
-uvicorn server:app --host 0.0.0.0 --port 8000 --reload
-```
-
----
-
-### 2. Biên Dịch Ứng Dụng Android (Client)
-
-#### Yêu cầu:
-- Node.js 22+ & NPM
-- Android Studio / Android SDK (API 34+)
-- JDK 21+
-
-```bash
-# 1. Đi vào thư mục client
-cd client
-
-# 2. Cài đặt các gói npm
-npm install
-
-# 3. Đồng bộ giao diện web sang tài nguyên Android
-npx cap copy android
-
-# 4. Biên dịch file APK gỡ lỗi (Debug APK)
-cd android
-./gradlew assembleDebug
-# Trên Windows:
-gradlew.bat assembleDebug
-```
-
-File APK sau khi biên dịch xong sẽ nằm tại:  
-`client/android/app/build/outputs/apk/debug/app-debug.apk`
-
----
-
-## 🧪 Kiểm Thử Tự Động (Automated Testing)
-
-Dự án đi kèm bộ test toàn diện kiểm tra nhận dạng giọng nói, điều hướng lệnh và đàm thoại:
-
-```bash
-cd client
-python test_router.py
-```
-
-Kết quả: **26/26 ca kiểm thử thành công 100%**, bao gồm kiểm tra nhầm lẫn thực thể (entity collision test), điều hướng nhạc YouTube, chỉ đường Maps, kích hoạt camera và chat AI tự do.
-
----
-
-## 📲 Tải Về Ứng Dụng (Download APK)
-
-Bạn có thể tải ngay bản APK cài đặt sẵn tại mục [Releases](https://github.com/wtrg/nova-voice-assistant/releases) của kho lưu trữ này.
-
----
-
 ## 📄 Giấy Phép (License)
 
-Dự án được phát hành theo giấy phép [MIT License](LICENSE). Tự do sử dụng, chỉnh sửa và tích hợp cho mục đích cá nhân lẫn thương mại.
+Dự án được phát hành theo giấy phép [MIT License](LICENSE).

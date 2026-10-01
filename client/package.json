@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/test_voice_mapping.js && node tests/test_turn_state_machine.js && node tests/test_reminder_contract.js"
+    "test": "node tests/test_voice_mapping.js && node tests/test_turn_state_machine.js && node tests/test_reminder_contract.js && node tests/test_index_syntax.js"
   },
   "keywords": [],
   "author": "",
@@ -14,5 +14,8 @@
     "@capacitor/android": "^8.5.2",
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2"
+  },
+  "devDependencies": {
+    "acorn": "^8.18.0"
   }
 }

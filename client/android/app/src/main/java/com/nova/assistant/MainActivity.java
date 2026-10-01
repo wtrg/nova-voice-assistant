@@ -63,9 +63,13 @@ public class MainActivity extends BridgeActivity {
     private boolean isNativeListening = false;
     private final java.util.concurrent.atomic.AtomicLong currentAudioRequestId = new java.util.concurrent.atomic.AtomicLong(0);
 
+    public static final String DEFAULT_PRODUCTION_URL = "https://api.nova-assistant.app";
+    public static final String DEFAULT_DEBUG_URL = "http://10.0.2.2:8000";
+
     private String getServerBaseUrl() {
         SharedPreferences prefs = getSharedPreferences("nova_config", Context.MODE_PRIVATE);
-        return prefs.getString("server_base_url", "http://192.168.100.48:8000");
+        String defaultUrl = BuildConfig.DEBUG ? DEFAULT_DEBUG_URL : DEFAULT_PRODUCTION_URL;
+        return prefs.getString("server_base_url", defaultUrl);
     }
 
     @Override
@@ -548,6 +552,64 @@ public class MainActivity extends BridgeActivity {
                             Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                             startActivity(intent);
+                        }
+                    }
+
+                    // V4-16: AppConfig Single Source Bridge
+                    @JavascriptInterface
+                    public String getAppConfigJson() {
+                        try {
+                            org.json.JSONObject obj = new org.json.JSONObject();
+                            obj.put("apiBaseUrl", getServerBaseUrl());
+                            obj.put("environment", BuildConfig.DEBUG ? "development" : "production");
+                            obj.put("appVersion", BuildConfig.VERSION_NAME);
+                            obj.put("buildSha", "v2.0.0");
+                            obj.put("featureHotword", NovaHotwordService.isEnabled(MainActivity.this));
+                            obj.put("featureDefaultAssistant", NovaVoiceInteractionService.isActiveService(MainActivity.this));
+                            obj.put("ttsMode", "cuppy");
+                            return obj.toString();
+                        } catch (Exception e) {
+                            return "{}";
+                        }
+                    }
+
+                    // V4-06: Trạng thái Default Assistant
+                    @JavascriptInterface
+                    public boolean isDefaultAssistantActive() {
+                        return NovaVoiceInteractionService.isActiveService(MainActivity.this);
+                    }
+
+                    // V4-11: Trạng thái Full-Screen Intent
+                    @JavascriptInterface
+                    public boolean canUseFullScreenIntent() {
+                        return NovaAlarmService.canUseFullScreenIntent(MainActivity.this);
+                    }
+
+                    // V4-08: Trạng thái và điều khiển Hotword Service
+                    @JavascriptInterface
+                    public boolean isHotwordServiceRunning() {
+                        return NovaHotwordService.isRunning();
+                    }
+
+                    @JavascriptInterface
+                    public boolean isHotwordServiceEnabled() {
+                        return NovaHotwordService.isEnabled(MainActivity.this);
+                    }
+
+                    @JavascriptInterface
+                    public void toggleHotwordService(boolean enable) {
+                        NovaHotwordService.setEnabled(MainActivity.this, enable);
+                        Intent intent = new Intent(MainActivity.this, NovaHotwordService.class);
+                        if (enable) {
+                            intent.setAction(NovaHotwordService.ACTION_START);
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent);
+                            } else {
+                                startService(intent);
+                            }
+                        } else {
+                            intent.setAction(NovaHotwordService.ACTION_STOP);
+                            startService(intent);
                         }
                     }
                 }, "AndroidNova");
@@ -1043,6 +1105,11 @@ public class MainActivity extends BridgeActivity {
 
     private void stopAudioInternal() {
         stopAssistantAudioInternal();
+        AudioOwnershipCoordinator.requestState(
+            NovaHotwordService.isEnabled(this) ?
+            AudioOwnershipCoordinator.AudioState.HOTWORD :
+            AudioOwnershipCoordinator.AudioState.IDLE
+        );
     }
 
     private void playLocalFileInternal(final String filePath) {
@@ -1582,6 +1649,7 @@ public class MainActivity extends BridgeActivity {
             intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2200L);
 
             isNativeListening = true;
+            AudioOwnershipCoordinator.requestState(AudioOwnershipCoordinator.AudioState.LISTENING);
             nativeRecognizer.startListening(intent);
         } catch (Exception e) {
             e.printStackTrace();
@@ -1607,6 +1675,7 @@ public class MainActivity extends BridgeActivity {
                 nativeRecognizer.cancel();
             }
             isNativeListening = false;
+            AudioOwnershipCoordinator.requestState(AudioOwnershipCoordinator.AudioState.WAITING_LLM);
         } catch (Exception e) {
             e.printStackTrace();
         }
