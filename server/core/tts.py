@@ -185,27 +185,27 @@ class TextToSpeech:
             logger.error(f"Lỗi ElevenLabs: {e}")
         return False
 
-    def synthesize(self, text: str) -> str:
-        """Chuyển văn bản thành file âm thanh wav/mp3 với VieNeu Xuân Tiên làm mặc định."""
+    def synthesize(self, text: str, skip_vieneu: bool = False) -> str:
+        """Chuyển văn bản thành file âm thanh wav/mp3 với VieNeu Xuân Tiên hoặc Edge-TTS Hoài My (nữ)."""
         timestamp = int(time.time() * 1000)
         output_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.wav")
         
         success = False
-        # Ưu tiên 1: Giọng VieNeu v3nano (Xuân Tiên)
-        if self.provider in ["vieneu", "cuppy", "nova"] or not self.provider:
+        # Ưu tiên 1: Giọng VieNeu v3nano (Xuân Tiên) nếu không bị yêu cầu skip
+        if not skip_vieneu and (self.provider in ["vieneu", "cuppy", "nova"] or not self.provider):
             success = self._generate_vieneu_tts(text, output_file)
 
-        if success and Path(output_file).exists():
+        if success and Path(output_file).exists() and Path(output_file).stat().st_size > 500:
             return output_file
 
-        # Ưu tiên 2: Fallback sang Edge-TTS tự nhiên (đã tinh chỉnh tông Bạn Thân)
-        logger.warning("[TTS] VieNeu bận hoặc chưa sẵn sàng, sử dụng dự phòng Edge-TTS...")
+        # Ưu tiên 2: Fallback tức thì sang Edge-TTS tự nhiên nữ Hoài My
+        logger.warning("[TTS] VieNeu bận/chậm, chuyển sang Edge-TTS nữ (Hoài My Neural) tốc độ cao...")
         try:
             mp3_file = str(AUDIO_CACHE_DIR / f"speech_{timestamp}.mp3")
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(lambda: asyncio.run(self._generate_edge_tts(text, mp3_file)))
-                future.result(timeout=10)
+                future.result(timeout=4.5)
             if Path(mp3_file).exists() and Path(mp3_file).stat().st_size > 500:
                 return mp3_file
         except Exception as e:

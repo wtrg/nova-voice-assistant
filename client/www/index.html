@@ -1008,7 +1008,20 @@
       if (!('speechSynthesis' in window)) return;
       const voices = window.speechSynthesis.getVoices();
       if (voices && voices.length > 0) {
-        viVoice = voices.find(v => v.lang === 'vi-VN' || v.lang.startsWith('vi')) || null;
+        const viVoices = voices.filter(v => v.lang === 'vi-VN' || v.lang.startsWith('vi'));
+        if (viVoices.length > 0) {
+          // Ưu tiên 1: Giọng có nhãn nữ rõ ràng và loại bỏ 100% giọng nam
+          viVoice = viVoices.find(v => {
+            const n = (v.name || "").toLowerCase();
+            const isMale = n.includes('male') || n.includes('nam') || n.includes('vic');
+            const isFemale = n.includes('female') || n.includes('nữ') || n.includes('hoaimy') || n.includes('vif') || n.includes('gft') || n.includes('f00');
+            return isFemale && !isMale;
+          }) || viVoices.find(v => {
+            // Ưu tiên 2: Giọng bất kỳ nhưng KHÔNG phải giọng nam
+            const n = (v.name || "").toLowerCase();
+            return !n.includes('male') && !n.includes('nam') && !n.includes('vic');
+          }) || viVoices[0];
+        }
       }
     }
     if ('speechSynthesis' in window) {
@@ -1330,21 +1343,21 @@
         reqEntry.onDone = onDoneCallback;
         reqEntry.onFail = onAudioFailed;
 
-        // Giảm thời gian chờ kết nối từ 35s xuống 8s để không bao giờ bị im lặng quá lâu
+        // Giảm thời gian chờ kết nối từ 8s xuống 2.5s để Nova luôn cất giọng phản hồi siêu tốc (<2.5s)
         if (audioRegistry) {
           reqEntry.connectTimeout = audioRegistry.scheduleRequestTimer(requestId, () => {
             if (reqEntry.cancelled) return;
             if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
-            console.warn("[Audio] connect timeout (8s), falling back to Native TTS");
+            console.warn("[Audio] connect timeout (2.5s), falling back to Native Female TTS");
             onAudioFailed();
-          }, 8000, turnController);
+          }, 2500, turnController);
         } else {
           reqEntry.connectTimeout = setTimeout(() => {
             if (reqEntry.cancelled) return;
             if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
-            console.warn("[Audio] connect timeout (8s), falling back to Native TTS");
+            console.warn("[Audio] connect timeout (2.5s), falling back to Native Female TTS");
             onAudioFailed();
-          }, 8000);
+          }, 2500);
         }
 
         try {
@@ -1357,11 +1370,11 @@
         }
       }
 
-      // CƠ CHẾ 2: TRÌNH DUYỆT WEB (HTML5 Audio phát trực tiếp luồng audio với fallback)
+      // CƠ CHẾ 2: TRÌNH DUYỆT WEB (HTML5 Audio phát trực tiếp luồng audio với fallback siêu tốc 2.5s)
       playAudioWithTimeout(cuppyTunnel, finishChunk, (err) => {
         console.warn("[Web Audio] Stream error, falling back to Web SpeechSynthesis:", err);
         fallbackSpeechSynthesis(text, finishChunk, onStart);
-      }, 7000, onStart);
+      }, 2500, onStart);
     }
 
     function playVoiceChunksSequentially(chunks, onFinished, onStart, ownerTurnId = null) {
@@ -1625,12 +1638,13 @@
       if ('speechSynthesis' in window) {
         try {
           if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+          initVoices();
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.lang = 'vi-VN';
           if (viVoice) utterance.voice = viVoice;
-          // Luôn tinh chỉnh pitch 1.3 và rate 1.1 để giữ tông nữ nhí nhảnh, không bao giờ bị nam robot trầm
-          utterance.pitch = 1.3;
-          utterance.rate = 1.1;
+          // Luôn tinh chỉnh pitch 1.35 và rate 1.10 để giữ tông nữ nhí nhảnh, loại trừ hoàn toàn giọng nam robot trầm
+          utterance.pitch = 1.35;
+          utterance.rate = 1.10;
 
           let doneCalled = false;
           const done = () => {

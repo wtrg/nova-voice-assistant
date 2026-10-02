@@ -235,22 +235,40 @@ async def get_cuppy_tts(text: str):
         return JSONResponse(status_code=400, content={"error": "Text is required"})
 
     def synthesize_safe():
+        clean_text = text.strip()
+        # 1. Kiểm tra cache trước - nếu đã sinh rồi thì trả về tức thì (0ms)
+        try:
+            import hashlib
+            from config import NOVA_VOICE, VIENEU_MODE
+            mode = VIENEU_MODE or "v3nano"
+            target_voice = NOVA_VOICE or "Xuân Tiên"
+            cache_key = f"{mode}|{target_voice}|{clean_text}"
+            text_hash = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:20]
+            cache_path = AUDIO_CACHE_DIR / f"nova_{text_hash}.wav"
+            if cache_path.exists() and cache_path.stat().st_size > 500:
+                return str(cache_path)
+        except Exception:
+            pass
+
+        # 2. Thử VieNeu v3nano với timeout 1.8s (đảm bảo không bao giờ để client đợi lâu)
         try:
             import concurrent.futures
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             from core.vieneu_engine import nova_engine
-            fut = executor.submit(nova_engine.synthesize, text.strip())
+            fut = executor.submit(nova_engine.synthesize, clean_text)
             try:
-                p = fut.result(timeout=6.0)
+                p = fut.result(timeout=1.8)
                 executor.shutdown(wait=False)
                 if p and Path(p).exists() and Path(p).stat().st_size > 500:
                     return str(p)
             except Exception as te:
                 executor.shutdown(wait=False, cancel_futures=True)
-                logger.warning(f"VieNeu inference timeout: {te}")
+                logger.warning(f"VieNeu inference timeout (>1.8s), chuyển ngay sang Edge-TTS nữ Hoài My: {te}")
         except Exception as e:
             logger.warning(f"VieNeu synthesize error: {e}")
-        return tts_engine.synthesize(text.strip())
+
+        # 3. Fallback tức thì sang Edge-TTS nữ Hoài My (bỏ qua VieNeu để tránh lock)
+        return tts_engine.synthesize(clean_text, skip_vieneu=True)
 
     audio_path = await run_in_threadpool(synthesize_safe)
     if audio_path and Path(audio_path).exists() and Path(audio_path).stat().st_size > 500:

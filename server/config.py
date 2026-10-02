@@ -11,7 +11,7 @@ DATA_DIR = Path(os.getenv("NOVA_DATA_DIR", str(BASE_DIR / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Phiên bản hệ thống & Handshake
-SERVER_VERSION = "2.0.0"
+SERVER_VERSION = "2.1.1"
 MIN_CLIENT_VERSION = "2.0.0"
 NOVA_API_BASE_URL = os.getenv("NOVA_API_BASE_URL", "https://nova-voice-assistant-6l5s.onrender.com")
 

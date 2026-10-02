@@ -135,34 +135,7 @@ public class MainActivity extends BridgeActivity {
                 @Override
                 public void onInit(int status) {
                     if (status == TextToSpeech.SUCCESS) {
-                        int result = tts.setLanguage(new Locale("vi", "VN"));
-                        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                            tts.setLanguage(Locale.getDefault());
-                        }
-
-                        // Ưu tiên chọn giọng nữ truyền cảm & dễ thương trong hệ thống
-                        try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                                Set<Voice> voices = tts.getVoices();
-                                if (voices != null) {
-                                    for (Voice v : voices) {
-                                        if (v.getLocale() != null && "vi".equals(v.getLocale().getLanguage())) {
-                                            String name = v.getName().toLowerCase();
-                                            if (name.contains("female") || name.contains("vif") || name.contains("vn-2")) {
-                                                tts.setVoice(v);
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (Exception ex) {
-                            ex.printStackTrace();
-                        }
-
-                        // Điều chỉnh tông pitch 1.25f, tốc độ 1.08f giúp giọng trẻ trung, nhí nhảnh đúng chất bạn thân
-                        tts.setPitch(1.25f);
-                        tts.setSpeechRate(1.08f);
+                        applyFemaleVoicePreference();
                         synchronized (ttsLock) {
                             ttsReady = true;
                             if (pendingSpeakText != null) {
@@ -665,7 +638,7 @@ public class MainActivity extends BridgeActivity {
                             obj.put("apiBaseUrl", getServerBaseUrl());
                             obj.put("environment", "production");
                             obj.put("appVersion", BuildConfig.VERSION_NAME);
-                            obj.put("buildSha", "v2.1.0");
+                            obj.put("buildSha", "v2.1.1");
                             obj.put("featureHotword", NovaHotwordService.isEnabled(MainActivity.this));
                             obj.put("featureDefaultAssistant", NovaVoiceInteractionService.isActiveService(MainActivity.this));
                             obj.put("ttsMode", "xuan_tien");
@@ -1246,12 +1219,77 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {}
     }
 
+    private void applyFemaleVoicePreference() {
+        if (tts == null) return;
+        try {
+            int result = tts.setLanguage(new Locale("vi", "VN"));
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                tts.setLanguage(Locale.getDefault());
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                Set<Voice> voices = tts.getVoices();
+                if (voices != null && !voices.isEmpty()) {
+                    Voice selectedFemaleVoice = null;
+                    Voice nonMaleVoice = null;
+
+                    for (Voice v : voices) {
+                        if (v != null && v.getLocale() != null && "vi".equalsIgnoreCase(v.getLocale().getLanguage())) {
+                            String name = v.getName().toLowerCase(Locale.ROOT);
+
+                            // Loại trừ triệt để giọng Nam
+                            boolean isMale = name.contains("male") || name.contains("vic") || 
+                                             name.contains("_m") || name.contains("-m") || 
+                                             name.contains("man") || name.contains("boy") ||
+                                             name.contains("nam");
+
+                            // Nhận diện các nhãn giọng Nữ tiếng Việt
+                            boolean isFemale = name.contains("female") || name.contains("vif") || 
+                                               name.contains("gft") || name.contains("vn-2") || 
+                                               name.contains("f00") || name.contains("_f") || 
+                                               name.contains("-f") || name.contains("woman") || 
+                                               name.contains("girl") || name.contains("hoaimy") ||
+                                               name.contains("nu");
+
+                            if (isFemale && !isMale) {
+                                selectedFemaleVoice = v;
+                                break;
+                            } else if (!isMale && nonMaleVoice == null) {
+                                nonMaleVoice = v;
+                            }
+                        }
+                    }
+
+                    if (selectedFemaleVoice != null) {
+                        tts.setVoice(selectedFemaleVoice);
+                        Log.i("NovaAssistant", "Applied Explicit Female Voice: " + selectedFemaleVoice.getName());
+                    } else if (nonMaleVoice != null) {
+                        tts.setVoice(nonMaleVoice);
+                        Log.i("NovaAssistant", "Applied Non-Male Voice: " + nonMaleVoice.getName());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w("NovaAssistant", "applyFemaleVoicePreference error: " + e.getMessage());
+        }
+
+        // Tăng tông cao 1.35f và nhịp điệu 1.10f:
+        // Đảm bảo âm sắc phát ra luôn mang nét nữ tính, ngọt ngào, tươi vui của bạn thân Nova
+        try {
+            tts.setPitch(1.35f);
+            tts.setSpeechRate(1.10f);
+        } catch (Exception ignored) {}
+    }
+
     private void executeNativeTts(final String text) {
         try {
             if (tts == null) {
                 runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
                 return;
             }
+            // Đảm bảo luôn ép giọng nữ và pitch cao trước mỗi phát ngôn Native
+            applyFemaleVoicePreference();
+
             requestTransientAudioFocus();
             AudioOwnershipCoordinator.requestState(AudioOwnershipCoordinator.AudioState.SPEAKING);
             String utteranceId = "nova_tts_" + System.currentTimeMillis();
