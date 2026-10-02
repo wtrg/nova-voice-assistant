@@ -2712,7 +2712,17 @@
         if (window.AndroidNova && window.AndroidNova.setVoiceTune) {
           window.AndroidNova.setVoiceTune(initPitch, initRate);
         }
-      }, 500);
+        if (window.AndroidNova && typeof window.AndroidNova.getMediaVolume === 'function') {
+          try {
+            if (window.AndroidNova.getMediaVolume() === 0) {
+              const statusLabel = document.getElementById("statusLabel");
+              if (statusLabel) {
+                statusLabel.innerText = "⚠️ Âm lượng loa đang tắt (Mute). Hãy bấm nút tăng âm lượng nhé!";
+              }
+            }
+          } catch(e){}
+        }
+      }, 800);
     } catch(e) {}
 
     // Mở khóa AudioContext khi người dùng chạm màn hình lần đầu tiên

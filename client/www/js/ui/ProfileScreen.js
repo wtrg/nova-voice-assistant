@@ -71,6 +71,17 @@ class ProfileScreen {
             <span style="color: var(--nova-blue-bright); font-size: 11px;">▶ Nghe thử</span>
           </div>
 
+          <div class="settings-item" onclick="if(window.AndroidNova && window.AndroidNova.openTtsSettings) window.AndroidNova.openTtsSettings();">
+            <div class="settings-item-left">
+              <span class="settings-item-icon">🗣️</span>
+              <div>
+                <div style="font-weight: 600; color: var(--nova-silver-100);">Cài đặt giọng đọc hệ thống (TTS)</div>
+                <div style="font-size: 11px; color: var(--text-dim);">Google TTS / Tiếng Việt máy</div>
+              </div>
+            </div>
+            <span style="color: var(--text-dim);">›</span>
+          </div>
+
           <div class="settings-item" onclick="toggleWakeWord()">
             <div class="settings-item-left">
               <span class="settings-item-icon">⚡</span>
@@ -126,7 +137,7 @@ class ProfileScreen {
               <span class="settings-item-icon">ℹ️</span>
               <div>
                 <div style="font-weight: 600; color: var(--nova-silver-100);">Phiên bản ứng dụng</div>
-                <div style="font-size: 11px; color: var(--text-dim);">Nova Cyber Infinity Soul v2.0.0</div>
+                <div style="font-size: 11px; color: var(--text-dim);">Nova Cyber Infinity Soul v2.1.0</div>
               </div>
             </div>
             <span style="font-size: 11px; color: var(--nova-blue-bright);">Build 2026.10</span>

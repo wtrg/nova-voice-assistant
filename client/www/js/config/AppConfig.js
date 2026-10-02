@@ -12,8 +12,8 @@
   const AppConfig = {
     apiBaseUrl: "https://nova-voice-assistant-6l5s.onrender.com",
     environment: "production",
-    appVersion: "2.0.0",
-    buildSha: "v2.0.0",
+    appVersion: "2.1.0",
+    buildSha: "v2.1.0",
     featureHotword: false,
     featureDefaultAssistant: true,
     ttsMode: "xuan_tien",

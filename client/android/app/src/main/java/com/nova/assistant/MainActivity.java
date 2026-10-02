@@ -17,6 +17,9 @@ import android.content.res.AssetFileDescriptor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.media.AudioFocusRequest;
 import android.provider.AlarmClock;
 import android.provider.MediaStore;
 import android.provider.Settings;
@@ -56,7 +59,11 @@ import android.util.Log;
 public class MainActivity extends BridgeActivity {
     private static final int RECORD_AUDIO_REQUEST_CODE = 1001;
     private TextToSpeech tts;
-    private boolean ttsReady = false;
+    private volatile boolean ttsReady = false;
+    private final Object ttsLock = new Object();
+    private String pendingSpeakText = null;
+    private Handler mainHandler = null;
+    private AudioManager.OnAudioFocusChangeListener audioFocusListener = null;
     private MediaPlayer mediaPlayer = null;
     private AssetFileDescriptor currentAssetFd = null;
     private SpeechRecognizer nativeRecognizer = null;
@@ -74,6 +81,13 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        mainHandler = new Handler(Looper.getMainLooper());
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        audioFocusListener = new AudioManager.OnAudioFocusChangeListener() {
+            @Override
+            public void onAudioFocusChange(int focusChange) {}
+        };
 
         // Bật sáng màn hình, hiển thị đè màn hình khóa và mở khóa khi được gọi làm trợ lý
         try {
@@ -149,7 +163,19 @@ public class MainActivity extends BridgeActivity {
                         // Điều chỉnh tông pitch 1.25f, tốc độ 1.08f giúp giọng trẻ trung, nhí nhảnh đúng chất bạn thân
                         tts.setPitch(1.25f);
                         tts.setSpeechRate(1.08f);
-                        ttsReady = true;
+                        synchronized (ttsLock) {
+                            ttsReady = true;
+                            if (pendingSpeakText != null) {
+                                final String textToSpeak = pendingSpeakText;
+                                pendingSpeakText = null;
+                                runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        executeNativeTts(textToSpeak);
+                                    }
+                                });
+                            }
+                        }
                     }
                 }
             };
@@ -168,6 +194,12 @@ public class MainActivity extends BridgeActivity {
 
                 @Override
                 public void onDone(String utteranceId) {
+                    abandonTransientAudioFocus();
+                    AudioOwnershipCoordinator.requestState(
+                        NovaHotwordService.isEnabled(MainActivity.this) ?
+                        AudioOwnershipCoordinator.AudioState.HOTWORD :
+                        AudioOwnershipCoordinator.AudioState.IDLE
+                    );
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -180,6 +212,12 @@ public class MainActivity extends BridgeActivity {
 
                 @Override
                 public void onError(String utteranceId) {
+                    abandonTransientAudioFocus();
+                    AudioOwnershipCoordinator.requestState(
+                        NovaHotwordService.isEnabled(MainActivity.this) ?
+                        AudioOwnershipCoordinator.AudioState.HOTWORD :
+                        AudioOwnershipCoordinator.AudioState.IDLE
+                    );
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -322,18 +360,27 @@ public class MainActivity extends BridgeActivity {
                             public void run() {
                                 try {
                                     stopAudioInternal();
-                                    if (tts != null && ttsReady) {
-                                        String utteranceId = "nova_tts_" + System.currentTimeMillis();
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                                            tts.speak(text.trim(), TextToSpeech.QUEUE_FLUSH, null, utteranceId);
+                                    synchronized (ttsLock) {
+                                        if (tts != null && ttsReady) {
+                                            executeNativeTts(text.trim());
                                         } else {
-                                            HashMap<String, String> params = new HashMap<>();
-                                            params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId);
-                                            tts.speak(text.trim(), TextToSpeech.QUEUE_FLUSH, params);
+                                            Log.i("NovaAssistant", "TTS initializing, queuing pending utterance...");
+                                            pendingSpeakText = text.trim();
+                                            if (mainHandler != null) {
+                                                mainHandler.postDelayed(new Runnable() {
+                                                    @Override
+                                                    public void run() {
+                                                        synchronized (ttsLock) {
+                                                            if (pendingSpeakText != null) {
+                                                                Log.w("NovaAssistant", "TTS init timeout (3s), clearing pending utterance");
+                                                                pendingSpeakText = null;
+                                                                runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                                                            }
+                                                        }
+                                                    }
+                                                }, 3000);
+                                            }
                                         }
-                                    } else {
-                                        Log.w("NovaAssistant", "TTS not ready or null, falling back to onNovaSpeechEnded");
-                                        runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
                                     }
                                 } catch (Exception e) {
                                     Log.e("NovaAssistant", "speakNative error: " + e.getMessage(), e);
@@ -341,6 +388,44 @@ public class MainActivity extends BridgeActivity {
                                 }
                             }
                         });
+                    }
+
+                    @JavascriptInterface
+                    public int getMediaVolume() {
+                        try {
+                            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                            if (am != null) {
+                                return am.getStreamVolume(AudioManager.STREAM_MUSIC);
+                            }
+                        } catch (Exception ignored) {}
+                        return 10;
+                    }
+
+                    @JavascriptInterface
+                    public int getMaxMediaVolume() {
+                        try {
+                            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                            if (am != null) {
+                                return am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+                            }
+                        } catch (Exception ignored) {}
+                        return 15;
+                    }
+
+                    @JavascriptInterface
+                    public void openTtsSettings() {
+                        try {
+                            Intent intent = new Intent();
+                            intent.setAction("com.android.settings.TTS_SETTINGS");
+                            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(intent);
+                        } catch (Exception e) {
+                            try {
+                                Intent intent = new Intent(Settings.ACTION_SETTINGS);
+                                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                startActivity(intent);
+                            } catch (Exception ignored) {}
+                        }
                     }
 
                     @JavascriptInterface
@@ -580,10 +665,10 @@ public class MainActivity extends BridgeActivity {
                             obj.put("apiBaseUrl", getServerBaseUrl());
                             obj.put("environment", "production");
                             obj.put("appVersion", BuildConfig.VERSION_NAME);
-                            obj.put("buildSha", "v2.0.0");
+                            obj.put("buildSha", "v2.1.0");
                             obj.put("featureHotword", NovaHotwordService.isEnabled(MainActivity.this));
                             obj.put("featureDefaultAssistant", NovaVoiceInteractionService.isActiveService(MainActivity.this));
-                            obj.put("ttsMode", "cuppy");
+                            obj.put("ttsMode", "xuan_tien");
                             return obj.toString();
                         } catch (Exception e) {
                             return "{}";
@@ -1089,6 +1174,7 @@ public class MainActivity extends BridgeActivity {
 
     private void stopAssistantAudioInternal() {
         currentAudioRequestId.incrementAndGet();
+        abandonTransientAudioFocus();
         try {
             if (mediaPlayer != null) {
                 if (mediaPlayer.isPlaying()) {
@@ -1129,6 +1215,65 @@ public class MainActivity extends BridgeActivity {
         );
     }
 
+    private void requestTransientAudioFocus() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    AudioAttributes playbackAttributes = new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build();
+                    AudioFocusRequest focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                        .setAudioAttributes(playbackAttributes)
+                        .setAcceptsDelayedFocusGain(false)
+                        .setOnAudioFocusChangeListener(audioFocusListener)
+                        .build();
+                    am.requestAudioFocus(focusRequest);
+                } else {
+                    am.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void abandonTransientAudioFocus() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am != null && audioFocusListener != null) {
+                am.abandonAudioFocus(audioFocusListener);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void executeNativeTts(final String text) {
+        try {
+            if (tts == null) {
+                runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                return;
+            }
+            requestTransientAudioFocus();
+            AudioOwnershipCoordinator.requestState(AudioOwnershipCoordinator.AudioState.SPEAKING);
+            String utteranceId = "nova_tts_" + System.currentTimeMillis();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId);
+            } else {
+                HashMap<String, String> params = new HashMap<>();
+                params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId);
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, params);
+            }
+        } catch (Exception e) {
+            Log.e("NovaAssistant", "executeNativeTts error", e);
+            AudioOwnershipCoordinator.requestState(
+                NovaHotwordService.isEnabled(this) ?
+                AudioOwnershipCoordinator.AudioState.HOTWORD :
+                AudioOwnershipCoordinator.AudioState.IDLE
+            );
+            abandonTransientAudioFocus();
+            runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+        }
+    }
+
     private void playLocalFileInternal(final String filePath) {
         try {
             stopAudioInternal();
@@ -1162,6 +1307,8 @@ public class MainActivity extends BridgeActivity {
                     }
                     runOnJs("if (window.onNovaSpeechStarted) window.onNovaSpeechStarted();");
                     try {
+                        requestTransientAudioFocus();
+                        AudioOwnershipCoordinator.requestState(AudioOwnershipCoordinator.AudioState.SPEAKING);
                         mp.start();
                     } catch (Exception ex) {
                         ex.printStackTrace();
@@ -1523,6 +1670,8 @@ public class MainActivity extends BridgeActivity {
                         }
                         dispatchAudioEvent(requestId, "started");
                         try {
+                            requestTransientAudioFocus();
+                            AudioOwnershipCoordinator.requestState(AudioOwnershipCoordinator.AudioState.SPEAKING);
                             mp.start();
                         } catch (Exception ex) {
                             ex.printStackTrace();
@@ -1591,6 +1740,8 @@ public class MainActivity extends BridgeActivity {
                         }
                         dispatchAudioEvent(requestId, "started");
                         try {
+                            requestTransientAudioFocus();
+                            AudioOwnershipCoordinator.requestState(AudioOwnershipCoordinator.AudioState.SPEAKING);
                             mp.start();
                         } catch (Exception ex) {
                             ex.printStackTrace();

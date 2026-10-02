@@ -63,10 +63,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RateLimitMiddleware, max_requests_per_minute=120)
 
-# F-06: Giới hạn CORS chỉ cho phép nguồn gốc tin cậy (Localhost, Capacitor, Cloudflare Tunnel)
+# F-06: CORS Middleware cho phép mọi nguồn gốc tin cậy (Mobile Webview, LAN, Render Cloud)
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^capacitor://localhost$|^https://.*\.trycloudflare\.com$",
+    allow_origin_regex=r"^https?://.*$|^capacitor://.*$|^ionic://.*$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "HEAD", "OPTIONS"],
     allow_headers=["*"],
