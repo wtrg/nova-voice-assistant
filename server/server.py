@@ -236,12 +236,15 @@ async def get_cuppy_tts(text: str):
 
     def synthesize_safe():
         try:
-            from core.vieneu_engine import nova_engine
-            p = nova_engine.synthesize(text.strip())
-            if p and p.exists() and p.stat().st_size > 1000:
-                return str(p)
-        except Exception:
-            pass
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                from core.vieneu_engine import nova_engine
+                fut = ex.submit(nova_engine.synthesize, text.strip())
+                p = fut.result(timeout=6.0)
+                if p and Path(p).exists() and Path(p).stat().st_size > 500:
+                    return str(p)
+        except Exception as e:
+            logger.warning(f"VieNeu synthesize timeout or error: {e}")
         return tts_engine.synthesize(text.strip())
 
     audio_path = await run_in_threadpool(synthesize_safe)

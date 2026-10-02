@@ -1040,25 +1040,36 @@
       const sampleText = "Xin chào! Mình là Xuân Tiên, trợ lý ảo giọng nói của bạn. Rất vui được đồng hành cùng bạn!";
       document.getElementById("novaBubble").innerText = `"${sampleText}" (Giọng Xuân Tiên VieNeu AI)`;
 
-      const audio = new Audio("assets/sample_xuantien.wav");
-      currentTTSAudio = audio;
       const resetVisual = () => {
         if (typeof NovaVisualState !== "undefined") NovaVisualState.set("idle");
         if (orb) orb.className = "w-36 h-36 rounded-full orb-glow cursor-pointer transition-all duration-300 flex items-center justify-center relative";
         if (wave) wave.classList.remove("wave-active");
       };
+
+      // 1. Nếu trên Android app: Sử dụng Hardware MediaPlayer phát asset tích hợp sẵn
+      if (window.AndroidNova && typeof window.AndroidNova.playAudioUrl === 'function') {
+        window._nativeTTSFinishedCallback = resetVisual;
+        try {
+          window.AndroidNova.playAudioUrl("sample_preview", "file:///android_asset/public/assets/sample_xuantien.wav");
+          return;
+        } catch(e) {
+          console.warn("Android playAudioUrl error, falling back:", e);
+        }
+      }
+
+      // 2. Trình duyệt Web: HTML5 Audio với fallback đa tầng
+      const audio = new Audio("assets/sample_xuantien.wav");
+      currentTTSAudio = audio;
       audio.onended = resetVisual;
       audio.onerror = () => {
         const streamUrl = `${getApiBaseUrl()}/api/cuppy-tts?text=${encodeURIComponent(sampleText)}`;
-        const fbAudio = new Audio(streamUrl);
-        fbAudio.onended = resetVisual;
-        fbAudio.onerror = () => {
+        playAudioWithTimeout(streamUrl, resetVisual, () => {
           fallbackSpeechSynthesis(sampleText, resetVisual);
-        };
-        fbAudio.play().catch(resetVisual);
+        }, 6000);
       };
       audio.play().catch(e => {
-        console.warn("Cần chạm màn hình để phát:", e);
+        console.warn("HTML5 audio blocked, fallback to speech synthesis:", e);
+        fallbackSpeechSynthesis(sampleText, resetVisual);
       });
     }
     const playStudioCuppyVoice = playStudioXuanTienVoice;
@@ -1291,29 +1302,8 @@
             console.warn(`[Audio] Ignored onAudioFailed for stale turn: ${currentTurnId}`);
             return;
           }
-          console.warn("Cuppy audio failed, playing Cuppy network notice");
-
-          // STAGE 5: Request-scoped fallback audio có định danh riêng, gắn với owner turn
-          const fallbackReqId = (turnController && currentTurnId) ? turnController.createTtsRequest(currentTurnId) : ('tts_fb_' + Date.now());
-          const fallbackEntry = audioRegistry ? audioRegistry.registerRequest(fallbackReqId, {
-            turnId: currentTurnId,
-            ownerTurnId: ownerTurnId,
-            isFallback: true,
-            onDone: finishChunk,
-            onFail: finishChunk
-          }) : null;
-
-          try {
-            window.AndroidNova.playAudioUrl(fallbackReqId, "file:///android_asset/public/assets/cuppy_network_error.wav");
-          } catch(e) {}
-
-          if (audioRegistry && fallbackEntry) {
-            audioRegistry.scheduleRequestTimer(fallbackReqId, finishChunk, 2000, turnController);
-          } else {
-            setTimeout(() => {
-              if (isOwnerTurnCurrent(ownerTurnId)) finishChunk();
-            }, 2000);
-          }
+          console.warn("[Audio] Server stream failed, falling back to Native TTS for text:", text);
+          fallbackSpeechSynthesis(text, finishChunk, triggerStartChunk);
         };
 
         const onStartedCallback = () => {
@@ -1340,22 +1330,21 @@
         reqEntry.onDone = onDoneCallback;
         reqEntry.onFail = onAudioFailed;
 
-        // Bao gồm cả thời gian server sinh clip Cuppy lần đầu; hủy khi MediaPlayer phát.
-
+        // Giảm thời gian chờ kết nối từ 35s xuống 8s để không bao giờ bị im lặng quá lâu
         if (audioRegistry) {
           reqEntry.connectTimeout = audioRegistry.scheduleRequestTimer(requestId, () => {
             if (reqEntry.cancelled) return;
             if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
-            console.warn("Cuppy audio connect timeout (35s)");
+            console.warn("[Audio] connect timeout (8s), falling back to Native TTS");
             onAudioFailed();
-          }, 35000, turnController);
+          }, 8000, turnController);
         } else {
           reqEntry.connectTimeout = setTimeout(() => {
             if (reqEntry.cancelled) return;
             if (currentTurnId && turnController && !turnController.isCurrentTurn(currentTurnId)) return;
-            console.warn("Cuppy audio connect timeout (35s)");
+            console.warn("[Audio] connect timeout (8s), falling back to Native TTS");
             onAudioFailed();
-          }, 35000);
+          }, 8000);
         }
 
         try {
@@ -1368,12 +1357,10 @@
         }
       }
 
-      // CƠ CHẾ 2: TRÌNH DUYỆT WEB (HTML5 Audio phát trực tiếp luồng Cuppy gốc)
+      // CƠ CHẾ 2: TRÌNH DUYỆT WEB (HTML5 Audio phát trực tiếp luồng audio với fallback)
       playAudioWithTimeout(cuppyTunnel, finishChunk, (err) => {
-        console.warn("Web audio Cuppy error, playing prebuilt Cuppy notice:", err);
-        playAudioWithTimeout("assets/cuppy_network_error.wav", finishChunk, () => {
-          finishChunk();
-        }, 3000, onStart);
+        console.warn("[Web Audio] Stream error, falling back to Web SpeechSynthesis:", err);
+        fallbackSpeechSynthesis(text, finishChunk, onStart);
       }, 7000, onStart);
     }
 

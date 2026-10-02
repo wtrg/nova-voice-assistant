@@ -110,7 +110,7 @@ class NovaNeuralTTS:
                 return cache_path
             try:
                 t0 = time.time()
-                wav = self.tts.infer(clean_text, voice=target_voice)
+                wav = self.tts.infer(clean_text, voice=target_voice, steps=6, cfg=1.5)
                 sample_rate = 24000 if self.mode == "v3nano" else 48000
                 sf.write(str(cache_path), wav, sample_rate)
                 dur = time.time() - t0

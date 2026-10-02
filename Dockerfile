@@ -20,7 +20,8 @@ WORKDIR /app
 # Copy dependency definition and install
 COPY server/requirements.txt /app/server/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /app/server/requirements.txt
+    pip install --no-cache-dir -r /app/server/requirements.txt && \
+    python -c "from vieneu import Vieneu; Vieneu(mode='v3nano')" || true
 
 # Copy server application code
 COPY server/ /app/server/
