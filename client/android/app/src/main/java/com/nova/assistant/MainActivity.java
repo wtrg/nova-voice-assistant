@@ -304,9 +304,14 @@ public class MainActivity extends BridgeActivity {
                         }
                     }
 
-                    // Phát giọng nói nhân vật gốc Cuppy 100%, loại bỏ hoàn toàn giọng nam robot mặc định của máy
+                    // Phát âm thanh Native TTS (Dự phòng ngoại tuyến tốc độ cao, không phụ thuộc mạng)
                     @JavascriptInterface
                     public void speak(final String text) {
+                        speakNative(text);
+                    }
+
+                    @JavascriptInterface
+                    public void speakNative(final String text) {
                         if (text == null || text.trim().isEmpty()) {
                             runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
                             return;
@@ -316,9 +321,22 @@ public class MainActivity extends BridgeActivity {
                             @Override
                             public void run() {
                                 try {
-                                    String encoded = java.net.URLEncoder.encode(text.trim(), "UTF-8");
-                                    playAudioUrlInternal(getServerBaseUrl() + "/api/cuppy-tts?text=" + encoded);
+                                    stopAudioInternal();
+                                    if (tts != null && ttsReady) {
+                                        String utteranceId = "nova_tts_" + System.currentTimeMillis();
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                                            tts.speak(text.trim(), TextToSpeech.QUEUE_FLUSH, null, utteranceId);
+                                        } else {
+                                            HashMap<String, String> params = new HashMap<>();
+                                            params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId);
+                                            tts.speak(text.trim(), TextToSpeech.QUEUE_FLUSH, params);
+                                        }
+                                    } else {
+                                        Log.w("NovaAssistant", "TTS not ready or null, falling back to onNovaSpeechEnded");
+                                        runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
+                                    }
                                 } catch (Exception e) {
+                                    Log.e("NovaAssistant", "speakNative error: " + e.getMessage(), e);
                                     runOnJs("if (window.onNovaSpeechEnded) window.onNovaSpeechEnded();");
                                 }
                             }
